@@ -1,0 +1,10 @@
+services:
+  theravoice:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - THERAVOICE_ENV=production
+      - THERAVOICE_DATABASE_URL=sqlite:////app/data/processed/theravoice.db
+    volumes:
+      - ./data:/app/data

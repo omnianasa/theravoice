@@ -1,0 +1,49 @@
+environment: production
+
+database:
+  url: "sqlite:///./data/processed/theravoice.db"
+  echo: false
+
+security:
+  require_api_key: true
+  api_key: ""   # set via THERAVOICE_API_KEY env var
+
+privacy:
+  store_raw_audio: false
+  require_audio_consent: true
+  require_data_storage_consent: true
+  data_retention_days: 30
+  redact_transcripts: true
+
+baseline:
+  minimum_observations: 5
+  rolling_window_size: 20
+  z_score_threshold: 2.0
+  update_enabled: true
+
+detection:
+  warning_z: 1.5
+  significant_z: 2.0
+
+hesitation:
+  english: ["um", "uh", "er", "hmm"]
+  arabic: ["امم", "اه", "يعني", "مم"]
+
+therapy:
+  require_clinician_approval: true
+
+aws:
+  enabled: false
+  region: "us-east-1"
+  s3_bucket: ""
+  dynamodb_table: ""
+
+bee:
+  mode: mock  # mock | sync | proxy -- see docs/bee_integration.md
+  sync_dir: "bee-sync"
+  proxy_base_url: "http://127.0.0.1:8787"
+  proxy_timeout_seconds: 10.0
+  max_conversations_per_poll: 50
+
+logging:
+  level: "WARNING"

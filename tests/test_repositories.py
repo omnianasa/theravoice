@@ -1,0 +1,71 @@
+"""Repository persistence round-trip tests (require a DB session)."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from theravoice.schemas.biomarker import BiomarkerSnapshot, BiomarkerValue
+from theravoice.schemas.event import Event
+from theravoice.schemas.evidence import Evidence
+from theravoice.schemas.patient import Patient
+from theravoice.storage.repositories.biomarker import BiomarkerRepository
+from theravoice.storage.repositories.event import EventRepository
+from theravoice.storage.repositories.patient import PatientRepository
+
+
+def test_patient_repository_round_trip(db_session):
+    repo = PatientRepository(db_session)
+    patient = Patient(id="p1", display_name="Test", consent_data_storage=True)
+    repo.create(patient)
+    db_session.commit()
+
+    fetched = repo.get("p1")
+    assert fetched is not None
+    assert fetched.display_name == "Test"
+    assert repo.exists("p1") is True
+    assert repo.exists("nope") is False
+
+
+def test_biomarker_repository_save_and_get_latest(db_session):
+    repo = BiomarkerRepository(db_session)
+    snapshot = BiomarkerSnapshot(
+        patient_id="p1",
+        timestamp=datetime.now(timezone.utc),
+        values=[BiomarkerValue(name="word_count", value=7.0, source="text", available=True)],
+    )
+    repo.save_snapshot(snapshot)
+    db_session.commit()
+
+    latest = repo.get_latest("p1")
+    assert latest is not None
+    assert latest.as_dict()["word_count"] == 7.0
+
+
+def test_biomarker_repository_history(db_session):
+    repo = BiomarkerRepository(db_session)
+    for v in [1.0, 2.0, 3.0]:
+        snapshot = BiomarkerSnapshot(
+            patient_id="p1", values=[BiomarkerValue(name="a", value=v, source="text", available=True)]
+        )
+        repo.save_snapshot(snapshot)
+    db_session.commit()
+
+    history = repo.get_history("p1", "a")
+    assert history == [1.0, 2.0, 3.0]
+
+
+def test_event_repository_round_trip(db_session):
+    repo = EventRepository(db_session)
+    event = Event(
+        type="speech_pattern_change",
+        patient_id="p1",
+        severity="warning",
+        evidence=[Evidence(type="x", source="test", description="desc")],
+    )
+    repo.save(event)
+    db_session.commit()
+
+    events = repo.list_for_patient("p1")
+    assert len(events) == 1
+    assert events[0].type == "speech_pattern_change"
+    assert events[0].evidence[0].description == "desc"

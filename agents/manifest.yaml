@@ -1,0 +1,64 @@
+# Declarative manifest of the TheraVoice multi-agent pipeline.
+#
+# This is documentation *and* runtime configuration: AgentOrchestrator
+# (src/theravoice/agents/orchestrator.py) reads `enabled` for each agent at
+# construction time and skips disabled agents entirely (their contribution
+# to events/actions/evidence for that run is simply empty), without needing
+# a code change or redeploy. This is the "top-level agents/" folder from the
+# project's target structure -- distinct from src/theravoice/agents/, which
+# holds the actual agent implementations.
+#
+# Agents run in this fixed order (see AgentOrchestrator.run):
+#   SpeechAgent -> TextAgent -> ContextAgent -> MedicationAgent
+#   -> TherapyAgent -> SummaryAgent
+
+agents:
+  - name: speech_agent
+    enabled: true
+    description: >
+      Compares acoustic biomarkers (pauses, pitch, intensity, voice quality)
+      against the patient's personal baseline and produces
+      speech_pattern_change events when they deviate.
+    inputs: [anomaly_results]
+    outputs: [events, evidence]
+
+  - name: text_agent
+    enabled: true
+    description: >
+      Compares text/language biomarkers (hesitation, repetition, lexical
+      diversity, sentence structure) against the personal baseline and
+      produces text_pattern_change events when they deviate.
+    inputs: [anomaly_results]
+    outputs: [events, evidence]
+
+  - name: context_agent
+    enabled: true
+    description: >
+      Adds temporal and medication-proximity context to detected
+      deviations, without ever claiming causation.
+    inputs: [anomaly_results, medication_schedules, observation_time]
+    outputs: [evidence, context_notes]
+
+  - name: medication_agent
+    enabled: true
+    description: >
+      Turns medication-proximity context into non-prescriptive check-in
+      reminders. Never changes a medication schedule or dosage.
+    inputs: [has_deviation, medication_proximities]
+    outputs: [actions]
+
+  - name: therapy_agent
+    enabled: true
+    description: >
+      Suggests configurable, non-prescriptive speech exercises relevant to
+      whichever metrics deviated.
+    inputs: [has_deviation, deviating_metrics]
+    outputs: [actions]
+
+  - name: summary_agent
+    enabled: true
+    description: >
+      Composes the human-readable, non-diagnostic summary text returned to
+      the person (and shown on the dashboard / CLI).
+    inputs: [all_evidence, all_actions, context_notes]
+    outputs: [summary_text]
