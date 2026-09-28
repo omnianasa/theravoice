@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from theravoice.api.middleware.error_handler import register_error_handlers
@@ -26,6 +29,14 @@ from theravoice.storage.database import init_db
 from theravoice.version import __version__
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Startup: ensure tables exist before the first request is served.
+    init_db()
+    yield
+    # No shutdown work needed today; this is the hook if that changes.
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=getattr(logging, settings.logging.level, logging.INFO))
@@ -37,9 +48,21 @@ def create_app() -> FastAPI:
             "Observes changes relative to a patient's own baseline; never diagnoses."
         ),
         version=__version__,
+        lifespan=_lifespan,
     )
 
     app.add_middleware(RequestLoggingMiddleware)
+    # Permissive CORS by default so the dashboard (or any local tool) can
+    # call this API from a different origin/port during development. Lock
+    # this down (e.g. to specific origins) before exposing a production
+    # deployment to the public internet.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     register_error_handlers(app)
 
     app.include_router(health.router)
@@ -60,11 +83,8 @@ def create_app() -> FastAPI:
     if dashboard_dir.is_dir():
         app.mount("/dashboard", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")
 
-    @app.on_event("startup")
-    def _startup() -> None:
-        init_db()
-
     return app
 
 
 app = create_app()
+
