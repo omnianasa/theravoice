@@ -24,6 +24,16 @@ positive request timeout; environment variables override those values. Leave
 the provider as `none` to use deterministic summaries. If a key is missing,
 the provider is unknown, or a request fails or times out, TheraVoice falls
 back to the deterministic summary.
+The ingestion response's `context.summary_generation_status` is `generated`,
+`fallback`, or `deterministic`; on provider failure,
+`context.summary_generation_error` is the stable code `provider_failure`.
+The provider's raw error is kept in server logs and is not returned to clients.
+
+Provider requests currently use synchronous HTTP clients. The configured
+timeout bounds each request but does not release the request worker while it
+waits. High-throughput deployments should account for this; asynchronous
+clients, concurrency limits, and provider-specific retry/rate-limit handling
+are not implemented yet.
 
 ## Data Handling
 

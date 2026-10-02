@@ -9,6 +9,28 @@ def test_health(client):
     assert response.json() == {"status": "ok", "service": "theravoice"}
 
 
+def test_api_key_is_required_when_authentication_is_enabled(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from theravoice.api.app import create_app
+    from theravoice.security import authentication
+
+    monkeypatch.setattr(
+        authentication,
+        "get_settings",
+        lambda: SimpleNamespace(
+            security=SimpleNamespace(require_api_key=True, api_key="test-secret")
+        ),
+    )
+    with TestClient(create_app()) as test_client:
+        assert test_client.get("/health").status_code == 401
+        assert test_client.get("/health", headers={"X-API-Key": "wrong"}).status_code == 401
+        response = test_client.get("/health", headers={"X-API-Key": "test-secret"})
+        assert response.status_code == 200
+
+
 def test_create_and_get_patient(client):
     payload = {
         "id": "patient-demo-001",

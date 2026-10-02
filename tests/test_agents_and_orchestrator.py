@@ -115,6 +115,15 @@ def test_summary_agent_falls_back_when_llm_generation_fails():
 
     assert response.data["summary_text"].startswith("Daily Summary")
     assert DISCLAIMER in response.data["summary_text"]
+    assert response.data["generation_status"] == "fallback"
+    assert response.data["generation_error"] == "provider_failure"
+
+    orchestrator = AgentOrchestrator(summary_agent=agent)
+    orchestrated_response = orchestrator.run(
+        patient_id="p1", anomaly_results=[], allow_llm_summary=True
+    )
+    assert orchestrated_response.data["summary_generation_status"] == "fallback"
+    assert orchestrated_response.data["summary_generation_error"] == "provider_failure"
 
 
 def test_summary_agent_does_not_call_llm_without_patient_consent():

@@ -193,6 +193,12 @@ class AnalysisPipeline:
             context={
                 "notes": orchestrator_response.data.get("context_notes", []),
                 "summary_text": orchestrator_response.data.get("summary_text", ""),
+                "summary_generation_status": orchestrator_response.data.get(
+                    "summary_generation_status", "deterministic"
+                ),
+                "summary_generation_error": orchestrator_response.data.get(
+                    "summary_generation_error"
+                ),
             },
             status="processed",
         )

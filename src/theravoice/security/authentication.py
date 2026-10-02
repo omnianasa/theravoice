@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hmac
+
 from theravoice.config.settings import get_settings
 
 
@@ -22,4 +24,6 @@ def verify_api_key(provided_key: str | None) -> bool:
     if not settings.security.api_key:
         # Misconfiguration: required but no key configured. Fail closed.
         return False
-    return provided_key is not None and provided_key == settings.security.api_key
+    return provided_key is not None and hmac.compare_digest(
+        provided_key, settings.security.api_key
+    )

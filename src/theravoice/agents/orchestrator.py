@@ -1,3 +1,4 @@
+
 """Multi-agent orchestrator.
 
 Flow:
@@ -157,5 +158,9 @@ class AgentOrchestrator:
             data={
                 "summary_text": summary_response.data.get("summary_text", ""),
                 "context_notes": context_notes,
+                "summary_generation_status": summary_response.data.get(
+                    "generation_status", "deterministic"
+                ),
+                "summary_generation_error": summary_response.data.get("generation_error"),
             },
         )

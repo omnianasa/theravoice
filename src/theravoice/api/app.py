@@ -7,10 +7,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from theravoice.api.dependencies import require_api_key
 from theravoice.api.middleware.error_handler import register_error_handlers
 from theravoice.api.middleware.logging import RequestLoggingMiddleware
 from theravoice.api.routes import (
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
         ),
         version=__version__,
         lifespan=_lifespan,
+        dependencies=[Depends(require_api_key)],
     )
 
     app.add_middleware(RequestLoggingMiddleware)

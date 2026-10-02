@@ -151,6 +151,14 @@ Key config sections: `database`, `security`, `privacy`, `baseline`,
 `bee`, `logging`. LLM setup and provider behavior are documented in
 [`docs/llm_integration.md`](docs/llm_integration.md).
 
+When `security.require_api_key` is enabled, every API route, including
+`/health`, requires the configured key in the `X-API-Key` header. The
+production configuration enables this and fails closed if no key is set.
+Development defaults to authentication disabled; do not expose that
+configuration to an untrusted network. Set `THERAVOICE_API_KEY` through a
+secret manager or environment variable before deployment. Requests with a
+missing or incorrect key receive HTTP `401`.
+
 ## LLM Integration
 
 The current LLM integration adds optional natural-language generation to the
@@ -177,6 +185,15 @@ daily summary while keeping TheraVoice's structured analysis deterministic:
   providers fall back to the deterministic summary. The application's
   non-diagnostic disclaimer is retained. Generated text never determines
   events, medication actions, or therapy recommendations.
+- The ingestion response reports the summary outcome in
+  `context.summary_generation_status`: `generated`, `fallback`, or
+  `deterministic`. A provider failure also sets
+  `context.summary_generation_error` to `provider_failure`; raw provider
+  errors stay in server logs.
+- Provider calls currently use synchronous HTTP clients. The configured
+  timeout bounds each call but does not free the request worker while it
+  waits. Async clients, concurrency limits, and provider-specific
+  retry/rate-limit handling are not implemented.
 - Existing databases gain the new consent column during startup, with
   existing patients defaulted to no LLM consent.
 
