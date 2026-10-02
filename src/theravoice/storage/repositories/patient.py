@@ -20,6 +20,7 @@ class PatientRepository:
             timezone=patient.timezone,
             consent_audio_analysis=patient.consent_audio_analysis,
             consent_data_storage=patient.consent_data_storage,
+            consent_llm_processing=patient.consent_llm_processing,
             created_at=patient.created_at,
         )
         self._session.merge(model)
@@ -36,8 +37,17 @@ class PatientRepository:
             timezone=model.timezone,
             consent_audio_analysis=model.consent_audio_analysis,
             consent_data_storage=model.consent_data_storage,
+            consent_llm_processing=model.consent_llm_processing,
             created_at=model.created_at,
         )
+
+    def set_llm_processing_consent(self, patient_id: str, allowed: bool) -> Patient | None:
+        model = self._session.get(PatientModel, patient_id)
+        if model is None:
+            return None
+        model.consent_llm_processing = allowed
+        self._session.flush()
+        return self.get(patient_id)
 
     def exists(self, patient_id: str) -> bool:
         return self._session.get(PatientModel, patient_id) is not None
@@ -51,6 +61,7 @@ class PatientRepository:
                 timezone=m.timezone,
                 consent_audio_analysis=m.consent_audio_analysis,
                 consent_data_storage=m.consent_data_storage,
+                consent_llm_processing=m.consent_llm_processing,
                 created_at=m.created_at,
             )
             for m in models

@@ -11,6 +11,7 @@ from theravoice.schemas.patient import Patient
 def test_patient_defaults():
     patient = Patient(id="p1", display_name="Test Patient")
     assert patient.consent_audio_analysis is False
+    assert patient.consent_llm_processing is False
     assert patient.timezone == "UTC"
 
 

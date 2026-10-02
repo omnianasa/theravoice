@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from theravoice.agents.orchestrator import AgentOrchestrator
+from theravoice.agents.summary_agent import SummaryAgent
 from theravoice.baseline.personal import compute_baseline
 from theravoice.baseline.profile import PatientProfile
 from theravoice.baseline.updater import BaselineUpdater
@@ -38,13 +39,18 @@ from theravoice.detection.change_detector import ChangeDetector
 from theravoice.detection.confidence import ConfidenceEstimator
 from theravoice.detection.thresholds import ThresholdManager
 from theravoice.ingestion.normalizer import is_empty_text, normalize_text
+from theravoice.llm.client import create_llm_client
 from theravoice.schemas.action import Action
 from theravoice.schemas.audio import AudioSegment
 from theravoice.schemas.biomarker import BiomarkerSnapshot
 from theravoice.schemas.event import Event
 from theravoice.schemas.patient import Patient
 from theravoice.schemas.transcript import TranscriptSegment
-from theravoice.security.privacy import redact_transcript, require_audio_consent, require_storage_consent
+from theravoice.security.privacy import (
+    redact_transcript,
+    require_audio_consent,
+    require_storage_consent,
+)
 from theravoice.storage.repositories.audio import AudioRepository
 from theravoice.storage.repositories.biomarker import BiomarkerRepository
 from theravoice.storage.repositories.event import EventRepository
@@ -95,7 +101,9 @@ class AnalysisPipeline:
             minimum_observations=settings.baseline.minimum_observations,
         )
         self._change_detector = ChangeDetector(self._anomaly_detector)
-        self._orchestrator = AgentOrchestrator()
+        self._orchestrator = AgentOrchestrator(
+            summary_agent=SummaryAgent(llm_client=create_llm_client(settings.llm))
+        )
 
     # ---- shared helpers ---------------------------------------------------
     def _get_patient_or_raise(self, session: Session, patient_id: str) -> Patient:
@@ -125,6 +133,7 @@ class AnalysisPipeline:
         snapshot: BiomarkerSnapshot,
         observation_time: datetime,
         text_length: int,
+        allow_llm_summary: bool = False,
     ) -> AnalysisResult:
         """Baseline -> detection -> context -> orchestrator -> persistence.
 
@@ -163,6 +172,7 @@ class AnalysisPipeline:
             anomaly_results=anomaly_results,
             medication_schedules=medication_schedules,
             observation_time=observation_time,
+            allow_llm_summary=allow_llm_summary,
         )
 
         # 5. Persist events produced with real evidence only.
@@ -227,7 +237,12 @@ class AnalysisPipeline:
 
             snapshot: BiomarkerSnapshot = self._extractor.extract(patient_id, text=normalized_text)
             result = self._analyze_snapshot(
-                session, patient_id, snapshot, observation_time, text_length
+                session,
+                patient_id,
+                snapshot,
+                observation_time,
+                text_length,
+                allow_llm_summary=patient.consent_llm_processing,
             )
             session.commit()
             return result
@@ -310,7 +325,12 @@ class AnalysisPipeline:
             )
 
             result = self._analyze_snapshot(
-                session, patient_id, snapshot, observation_time, text_length
+                session,
+                patient_id,
+                snapshot,
+                observation_time,
+                text_length,
+                allow_llm_summary=patient.consent_llm_processing,
             )
             session.commit()
             return result

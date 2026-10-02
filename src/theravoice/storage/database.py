@@ -12,8 +12,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.schema import CreateColumn
 
 from theravoice.config.settings import get_settings
 from theravoice.storage.models import Base
@@ -51,8 +52,25 @@ def get_session_factory() -> sessionmaker:
 
 
 def init_db() -> None:
-    """Create all tables that don't yet exist. Idempotent."""
-    Base.metadata.create_all(get_engine())
+    """Create missing tables and apply small additive schema upgrades."""
+    engine = get_engine()
+    Base.metadata.create_all(engine)
+    _ensure_patient_llm_consent_column(engine)
+
+
+def _ensure_patient_llm_consent_column(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "patients" not in inspector.get_table_names():
+        return
+    column = "consent_llm_processing"
+    if column in {item["name"] for item in inspector.get_columns("patients")}:
+        return
+
+    column_definition = CreateColumn(Base.metadata.tables["patients"].c[column]).compile(
+        dialect=engine.dialect
+    )
+    with engine.begin() as connection:
+        connection.execute(text(f"ALTER TABLE patients ADD COLUMN {column_definition}"))
 
 
 def reset_db_state() -> None:

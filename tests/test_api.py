@@ -16,6 +16,7 @@ def test_create_and_get_patient(client):
         "timezone": "UTC",
         "consent_audio_analysis": True,
         "consent_data_storage": True,
+        "consent_llm_processing": True,
     }
     create_response = client.post("/patients", json=payload)
     assert create_response.status_code == 201
@@ -24,6 +25,25 @@ def test_create_and_get_patient(client):
     get_response = client.get("/patients/patient-demo-001")
     assert get_response.status_code == 200
     assert get_response.json()["display_name"] == "Demo Patient"
+    assert get_response.json()["consent_llm_processing"] is True
+
+
+def test_patient_llm_consent_can_be_revoked(client):
+    client.post(
+        "/patients",
+        json={
+            "id": "patient-consent",
+            "display_name": "Consent Test",
+            "consent_llm_processing": True,
+        },
+    )
+
+    response = client.patch(
+        "/patients/patient-consent/consent", json={"consent_llm_processing": False}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["consent_llm_processing"] is False
 
 
 def test_create_duplicate_patient_conflicts(client):

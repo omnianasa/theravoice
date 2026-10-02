@@ -72,6 +72,13 @@ class TherapySettings(BaseModel):
     require_clinician_approval: bool = True
 
 
+class LLMSettings(BaseModel):
+    provider: str = "none"
+    model: str = ""
+    api_key: str = ""
+    timeout_seconds: float = Field(default=15.0, gt=0)
+
+
 class AWSSettings(BaseModel):
     enabled: bool = False
     region: str = "us-east-1"
@@ -109,6 +116,7 @@ class Settings(BaseModel):
     detection: DetectionSettings = Field(default_factory=DetectionSettings)
     hesitation: HesitationSettings = Field(default_factory=HesitationSettings)
     therapy: TherapySettings = Field(default_factory=TherapySettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
     aws: AWSSettings = Field(default_factory=AWSSettings)
     bee: BeeSettings = Field(default_factory=BeeSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
@@ -132,6 +140,7 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     """
     raw.setdefault("database", {})
     raw.setdefault("security", {})
+    raw.setdefault("llm", {})
     raw.setdefault("aws", {})
 
     if db_url := os.environ.get("THERAVOICE_DATABASE_URL"):
@@ -140,6 +149,15 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     if api_key := os.environ.get("THERAVOICE_API_KEY"):
         raw["security"]["api_key"] = api_key
         raw["security"]["require_api_key"] = True
+
+    for env_name, setting_name in (
+        ("THERAVOICE_LLM_PROVIDER", "provider"),
+        ("THERAVOICE_LLM_MODEL", "model"),
+        ("THERAVOICE_LLM_API_KEY", "api_key"),
+        ("THERAVOICE_LLM_TIMEOUT_SECONDS", "timeout_seconds"),
+    ):
+        if value := os.environ.get(env_name):
+            raw["llm"][setting_name] = value
 
     if (aws_enabled := os.environ.get("THERAVOICE_AWS_ENABLED")) is not None:
         raw["aws"]["enabled"] = aws_enabled.strip().lower() in {"1", "true", "yes", "on"}

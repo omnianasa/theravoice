@@ -19,8 +19,8 @@ from theravoice.agents.therapy_agent import TherapyAgent
 from theravoice.detection.anomaly_detector import MetricAnomalyResult
 from theravoice.schemas.action import Action
 from theravoice.schemas.agent import AgentRequest, AgentResponse
-from theravoice.schemas.evidence import Evidence
 from theravoice.schemas.event import Event
+from theravoice.schemas.evidence import Evidence
 from theravoice.schemas.medication import MedicationSchedule
 
 
@@ -60,6 +60,7 @@ class AgentOrchestrator:
         anomaly_results: list[MetricAnomalyResult],
         medication_schedules: list[MedicationSchedule] | None = None,
         observation_time: datetime | None = None,
+        allow_llm_summary: bool = False,
     ) -> AgentResponse:
         observation_time = observation_time or datetime.now(timezone.utc)
         medication_schedules = medication_schedules or []
@@ -143,7 +144,7 @@ class AgentOrchestrator:
                     "all_actions": all_actions,
                     "context_notes": context_notes,
                 },
-                context={},
+                context={"allow_llm_summary": allow_llm_summary},
             ),
         )
 
