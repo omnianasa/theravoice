@@ -21,6 +21,8 @@ the primary motivating example, but the architecture is disease-agnostic.
 - [Installation](#installation)
 - [Local development](#local-development)
 - [Configuration](#configuration)
+- [LLM integration](#llm-integration)
+- [Run and verify](#run-and-verify)
 - [API](#api)
 - [Biomarker system](#biomarker-system)
 - [Baseline system](#baseline-system)
@@ -30,6 +32,7 @@ the primary motivating example, but the architecture is disease-agnostic.
 - [Bee integration](#bee-integration)
 - [AWS adapter](#aws-adapter)
 - [Testing](#testing)
+- [Known issues](#known-issues)
 - [Examples](#examples)
 - [Limitations](#limitations)
 
@@ -136,20 +139,150 @@ touching YAML or source control — see `.env.example`:
 | `THERAVOICE_ENV` | which YAML file is loaded |
 | `THERAVOICE_DATABASE_URL` | `database.url` |
 | `THERAVOICE_API_KEY` | `security.api_key` (also sets `require_api_key: true`) |
+| `THERAVOICE_LLM_PROVIDER` | `llm.provider` (`none`, `openai`, or `gemini`) |
+| `THERAVOICE_LLM_MODEL` | `llm.model` (provider default when empty) |
+| `THERAVOICE_LLM_API_KEY` | `llm.api_key` (keep this secret out of YAML and source control) |
+| `THERAVOICE_LLM_TIMEOUT_SECONDS` | `llm.timeout_seconds` |
 | `THERAVOICE_AWS_ENABLED` | `aws.enabled` |
 | `AWS_REGION` | `aws.region` |
 
 Key config sections: `database`, `security`, `privacy`, `baseline`,
-`detection`, `hesitation` (per-language markers), `therapy`, `aws`, `bee`,
-`logging`.
+`detection`, `hesitation` (per-language markers), `therapy`, `llm`, `aws`,
+`bee`, `logging`. LLM setup and provider behavior are documented in
+[`docs/llm_integration.md`](docs/llm_integration.md).
+
+When `security.require_api_key` is enabled, every API route, including
+`/health`, requires the configured key in the `X-API-Key` header. The
+production configuration enables this and fails closed if no key is set.
+Development defaults to authentication disabled; do not expose that
+configuration to an untrusted network. Set `THERAVOICE_API_KEY` through a
+secret manager or environment variable before deployment. Requests with a
+missing or incorrect key receive HTTP `401`.
+
+## LLM Integration
+
+The current LLM integration adds optional natural-language generation to the
+daily summary while keeping TheraVoice's structured analysis deterministic:
+
+- A provider-neutral client supports OpenAI Chat Completions and Google
+  Gemini `generateContent`, using Python's standard library rather than a new
+  runtime SDK dependency.
+- Provider and model selection, API key, and positive request timeout come
+  from YAML settings with environment-variable overrides. The provider is
+  `none` by default, so existing installations continue to use deterministic
+  summaries without credentials or network access.
+- Only `SummaryAgent` uses the LLM. Biomarker extraction, event detection,
+  medication handling, and therapy recommendations remain functional and
+  deterministic.
+- A summary request requires the patient's separate
+  `consent_llm_processing` flag, which defaults to `false`. It can be set at
+  patient creation or changed/revoked with
+  `PATCH /patients/{patient_id}/consent`.
+- Only structured evidence descriptions, context notes, and suggested-action
+  messages are sent for generation. Patient IDs and raw transcripts are not
+  included. These fields may still contain sensitive health information.
+- Provider timeouts, network/HTTP errors, missing credentials, and unknown
+  providers fall back to the deterministic summary. The application's
+  non-diagnostic disclaimer is retained. Generated text never determines
+  events, medication actions, or therapy recommendations.
+- The ingestion response reports the summary outcome in
+  `context.summary_generation_status`: `generated`, `fallback`, or
+  `deterministic`. A provider failure also sets
+  `context.summary_generation_error` to `provider_failure`; raw provider
+  errors stay in server logs.
+- Provider calls currently use synchronous HTTP clients. The configured
+  timeout bounds each call but does not free the request worker while it
+  waits. Async clients, concurrency limits, and provider-specific
+  retry/rate-limit handling are not implemented.
+- Existing databases gain the new consent column during startup, with
+  existing patients defaulted to no LLM consent.
+
+The provider-specific configuration and data-handling guidance is in
+[`docs/llm_integration.md`](docs/llm_integration.md).
+
+## Run and Verify
+
+The project requires Python 3.12 or newer. From the repository root, the
+following PowerShell commands create the environment, install the project and
+test dependencies, and run the whole test suite:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Start the API locally with deterministic summaries (the default):
+
+```powershell
+$env:THERAVOICE_ENV = "development"
+$env:THERAVOICE_LLM_PROVIDER = "none"
+.\.venv\Scripts\python.exe -m uvicorn theravoice.api.app:app --reload
+```
+
+Check that it is running at `http://127.0.0.1:8000/health`. Swagger UI is at
+`http://127.0.0.1:8000/docs`. The first startup creates the configured
+database tables and applies the additive patient-consent upgrade.
+
+To test an external summary, set the provider before starting the server:
+
+```powershell
+$env:THERAVOICE_LLM_PROVIDER = "openai"
+$env:THERAVOICE_LLM_MODEL = "gpt-4o-mini"
+$env:THERAVOICE_LLM_API_KEY = "<provider-api-key>"
+.\.venv\Scripts\python.exe -m uvicorn theravoice.api.app:app --reload
+```
+
+Use `gemini` for Google Gemini. Keep API keys in environment variables or a
+secret manager; do not commit them. Create a local test patient with storage
+and LLM consent, then submit a transcript:
+
+```powershell
+$patient = @{
+  id = "llm-demo-001"
+  display_name = "LLM Demo"
+  consent_data_storage = $true
+  consent_llm_processing = $true
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/patients" `
+  -ContentType "application/json" -Body $patient
+
+$transcript = @{
+  patient_id = "llm-demo-001"
+  text = "Good morning, I am feeling okay today."
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/ingestion/transcript" `
+  -ContentType "application/json" -Body $transcript
+```
+
+The response includes the summary under `context.summary_text`. To revoke
+consent, send:
+
+```powershell
+Invoke-RestMethod -Method Patch `
+  -Uri "http://127.0.0.1:8000/patients/llm-demo-001/consent" `
+  -ContentType "application/json" `
+  -Body '{"consent_llm_processing": false}'
+```
+
+Do not use real patient data for a smoke test unless consent, provider terms,
+and organizational policy explicitly permit sending summary fields to that
+provider. A provider API key and network access are required for a live
+provider request; automated tests mock provider responses.
 
 ## API
 
 | Method & Path | Purpose |
 |---|---|
 | `GET /health` | Liveness check |
-| `POST /patients` | Create a patient (consent flags required) |
+| `POST /patients` | Create a patient (consent flags default to false) |
 | `GET /patients/{id}` | Fetch a patient |
+| `PATCH /patients/{id}/consent` | Update/revoke LLM-processing consent |
 | `POST /ingestion/transcript` | **Runs the full analysis pipeline** on a transcript |
 | `POST /ingestion/audio` | Loads/validates an audio upload (see note below) |
 | `GET /patients/{id}/biomarkers` | All persisted biomarker values |
@@ -308,7 +441,7 @@ system runs fully without AWS or the `aws` extra installed.
 ## Testing
 
 ```bash
-pytest
+python -m pytest -q
 ```
 
 Test modules cover schemas, normalization, text/speech biomarkers, the
@@ -317,7 +450,9 @@ Test modules cover schemas, normalization, text/speech biomarkers, the
 context/medication rules (including "never claims causation"), agents and
 the orchestrator (including "medication agent never emits a medication
 change"), repositories, the full FastAPI surface, and the end-to-end
-`AnalysisPipeline`.
+`AnalysisPipeline`. The LLM tests cover provider request formatting,
+configuration, timeout handling, consent enforcement, deterministic
+fallback, and the existing-database consent-column upgrade.
 
 Expected output: all tests pass (`pytest` exits 0). Tests run against an
 isolated temp-file SQLite database per session (see `tests/conftest.py`) and

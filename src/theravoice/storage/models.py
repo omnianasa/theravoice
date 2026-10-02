@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    TypeDecorator,
+    false,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -60,6 +71,9 @@ class PatientModel(Base):
     timezone: Mapped[str] = mapped_column(String, default="UTC")
     consent_audio_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
     consent_data_storage: Mapped[bool] = mapped_column(Boolean, default=False)
+    consent_llm_processing: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
 

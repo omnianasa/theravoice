@@ -32,6 +32,11 @@ hesitation:
 therapy:
   require_clinician_approval: true
 
+llm:
+  provider: none
+  model: ""
+  timeout_seconds: 15.0
+
 aws:
   enabled: false
   region: "us-east-1"

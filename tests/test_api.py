@@ -9,6 +9,28 @@ def test_health(client):
     assert response.json() == {"status": "ok", "service": "theravoice"}
 
 
+def test_api_key_is_required_when_authentication_is_enabled(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from theravoice.api.app import create_app
+    from theravoice.security import authentication
+
+    monkeypatch.setattr(
+        authentication,
+        "get_settings",
+        lambda: SimpleNamespace(
+            security=SimpleNamespace(require_api_key=True, api_key="test-secret")
+        ),
+    )
+    with TestClient(create_app()) as test_client:
+        assert test_client.get("/health").status_code == 401
+        assert test_client.get("/health", headers={"X-API-Key": "wrong"}).status_code == 401
+        response = test_client.get("/health", headers={"X-API-Key": "test-secret"})
+        assert response.status_code == 200
+
+
 def test_create_and_get_patient(client):
     payload = {
         "id": "patient-demo-001",
@@ -16,6 +38,7 @@ def test_create_and_get_patient(client):
         "timezone": "UTC",
         "consent_audio_analysis": True,
         "consent_data_storage": True,
+        "consent_llm_processing": True,
     }
     create_response = client.post("/patients", json=payload)
     assert create_response.status_code == 201
@@ -24,6 +47,25 @@ def test_create_and_get_patient(client):
     get_response = client.get("/patients/patient-demo-001")
     assert get_response.status_code == 200
     assert get_response.json()["display_name"] == "Demo Patient"
+    assert get_response.json()["consent_llm_processing"] is True
+
+
+def test_patient_llm_consent_can_be_revoked(client):
+    client.post(
+        "/patients",
+        json={
+            "id": "patient-consent",
+            "display_name": "Consent Test",
+            "consent_llm_processing": True,
+        },
+    )
+
+    response = client.patch(
+        "/patients/patient-consent/consent", json={"consent_llm_processing": False}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["consent_llm_processing"] is False
 
 
 def test_create_duplicate_patient_conflicts(client):
