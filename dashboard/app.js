@@ -8,7 +8,7 @@
  */
 
 const params = new URLSearchParams(window.location.search);
-const API_BASE = params.get("api") || "";
+const API_BASE = (params.get("api") || "").replace(/\/+$/, "");
 
 const el = (id) => document.getElementById(id);
 document.addEventListener("DOMContentLoaded", () => {
@@ -39,9 +39,18 @@ function setStatus(message, isError = false) {
 }
 
 async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (typeof options.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const apiKey = el("api-key")?.value.trim();
+  if (apiKey) {
+    headers.set("X-API-Key", apiKey);
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers,
   });
   let body = null;
   try {
@@ -50,6 +59,9 @@ async function apiFetch(path, options = {}) {
     body = null;
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("API key missing or invalid. Check the API key field.");
+    }
     const detail = body && body.detail ? body.detail : response.statusText;
     throw new Error(detail);
   }
@@ -57,7 +69,18 @@ async function apiFetch(path, options = {}) {
 }
 
 function badge(status) {
-  return `<span class="badge ${status}">${status}</span>`;
+  const safeStatus = escapeHTML(status);
+  return `<span class="badge ${safeStatus}">${safeStatus}</span>`;
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
 }
 
 function renderBiomarkers(snapshot) {
@@ -68,17 +91,18 @@ function renderBiomarkers(snapshot) {
   }
   const rows = snapshot.values
     .filter((v) => v.available)
-    .map(
-      (v) =>
-        `<tr><td>${v.name}</td><td>${Number(v.value).toFixed(3)}</td><td>${v.unit || ""}</td></tr>`
-    )
+    .map((v) => {
+      const value = Number(v.value);
+      const formattedValue = Number.isFinite(value) ? value.toFixed(3) : "-";
+      return `<tr><td>${escapeHTML(v.name)}</td><td>${formattedValue}</td><td>${escapeHTML(v.unit)}</td></tr>`;
+    })
     .join("");
   container.innerHTML = `
     <table>
       <thead><tr><th>Metric</th><th>Value</th><th>Unit</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="3" class="muted">None available yet.</td></tr>'}</tbody>
     </table>
-    <p class="muted">As of ${new Date(snapshot.timestamp).toLocaleString()}</p>
+    <p class="muted">As of ${escapeHTML(new Date(snapshot.timestamp).toLocaleString())}</p>
   `;
 }
 
@@ -89,15 +113,19 @@ function renderDailySummary(summary) {
     return;
   }
   const observations = summary.observations && summary.observations.length
-    ? `<ul>${summary.observations.map((o) => `<li>${o}</li>`).join("")}</ul>`
+    ? `<ul>${summary.observations.map((o) => `<li>${escapeHTML(o)}</li>`).join("")}</ul>`
     : '<p class="muted">No notable deviations observed today.</p>';
   const context = summary.context_notes && summary.context_notes.length
-    ? `<ul>${summary.context_notes.map((n) => `<li>${n}</li>`).join("")}</ul>`
+    ? `<ul>${summary.context_notes.map((n) => `<li>${escapeHTML(n)}</li>`).join("")}</ul>`
+    : "";
+  const actions = summary.suggested_actions && summary.suggested_actions.length
+    ? `<ul>${summary.suggested_actions.map((action) => `<li>${escapeHTML(action.message)}</li>`).join("")}</ul>`
     : "";
   container.innerHTML = `
     ${observations}
     ${context}
-    <p class="muted"><em>${summary.disclaimer}</em></p>
+    ${actions}
+    <p class="muted"><em>${escapeHTML(summary.disclaimer)}</em></p>
   `;
 }
 
@@ -110,11 +138,12 @@ function renderEvents(events) {
   container.innerHTML = events
     .slice(0, 15)
     .map((e) => {
-      const evidence = (e.evidence || []).map((ev) => `<li>${ev.description}</li>`).join("");
+      const evidence = (e.evidence || []).map((ev) => `<li>${escapeHTML(ev.description)}</li>`).join("");
+      const severity = escapeHTML(e.severity);
       return `
-        <div class="event-item ${e.severity}">
-          <strong>${e.type}</strong> ${badge(e.severity)}
-          <div class="muted">${new Date(e.timestamp).toLocaleString()}</div>
+        <div class="event-item ${severity}">
+          <strong>${escapeHTML(e.type)}</strong> ${badge(e.severity)}
+          <div class="muted">${escapeHTML(new Date(e.timestamp).toLocaleString())}</div>
           <ul>${evidence}</ul>
         </div>`;
     })
@@ -132,7 +161,7 @@ function renderTimeline(timeline) {
     .reverse()
     .map(
       (entry) =>
-        `<div class="timeline-item"><strong>${entry.summary}</strong><div class="muted">${new Date(entry.timestamp).toLocaleString()}</div></div>`
+        `<div class="timeline-item"><strong>${escapeHTML(entry.summary)}</strong><div class="muted">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</div></div>`
     )
     .join("");
 }

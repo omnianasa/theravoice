@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TheraVoice Dashboard</title>
-<link rel="stylesheet" href="styles.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TheraVoice Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
   <header>
     <h1>TheraVoice</h1>
@@ -20,6 +22,10 @@
         <button id="load-btn">Load</button>
         <button id="sync-btn" title="Pull new conversations from Bee and analyze them">Sync from Bee</button>
       </div>
+      <label class="api-key-field" for="api-key">
+        API key
+        <input id="api-key" type="password" autocomplete="off" placeholder="X-API-Key" />
+      </label>
       <p id="status-line" class="muted"></p>
     </section>
 
@@ -32,28 +38,37 @@
     <section class="grid">
       <div class="card">
         <h2>Latest biomarkers</h2>
-        <div id="biomarkers-table"><p class="muted">No data loaded yet.</p></div>
+        <div id="biomarkers-table">
+          <p class="muted">No data loaded yet.</p>
+        </div>
       </div>
 
       <div class="card">
         <h2>Today's summary</h2>
-        <div id="daily-summary"><p class="muted">No data loaded yet.</p></div>
+        <div id="daily-summary">
+          <p class="muted">No data loaded yet.</p>
+        </div>
       </div>
 
       <div class="card">
         <h2>Recent events</h2>
-        <div id="events-list"><p class="muted">No data loaded yet.</p></div>
+        <div id="events-list">
+          <p class="muted">No data loaded yet.</p>
+        </div>
       </div>
 
       <div class="card">
         <h2>Timeline</h2>
-        <div id="timeline-list"><p class="muted">No data loaded yet.</p></div>
+        <div id="timeline-list">
+          <p class="muted">No data loaded yet.</p>
+        </div>
       </div>
     </section>
 
     <section class="card">
       <h2>Try a transcript directly</h2>
-      <p class="muted">Runs the full pipeline (biomarkers → baseline → detection → agents) on typed text, no Bee needed.</p>
+      <p class="muted">Runs the full pipeline (biomarkers → baseline → detection → agents) on typed text, no Bee needed.
+      </p>
       <textarea id="transcript-input" rows="3" placeholder="Good morning, I am feeling okay today."></textarea>
       <button id="analyze-btn">Analyze</button>
       <pre id="analyze-result" class="result-box"></pre>
@@ -66,4 +81,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

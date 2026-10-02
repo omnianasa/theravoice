@@ -91,6 +91,20 @@ input#patient-id {
   min-width: 200px;
 }
 
+.api-key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.api-key-field input {
+  width: 100%;
+}
+
 textarea {
   width: 100%;
   margin: 8px 0;
