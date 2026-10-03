@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 
 def test_health(client):
     response = client.get("/health")
@@ -140,6 +142,75 @@ def test_patient_llm_consent_can_be_revoked(client):
 
     assert response.status_code == 200
     assert response.json()["consent_llm_processing"] is False
+
+
+def test_request_llm_key_is_used_only_with_consent_and_not_persisted(client, monkeypatch):
+    provider_requests = []
+
+    class ProviderResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def read():
+            return json.dumps(
+                {"choices": [{"message": {"content": "A concise observed summary."}}]}
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        provider_requests.append((request, timeout))
+        return ProviderResponse()
+
+    monkeypatch.setattr("theravoice.llm.client.urlopen", fake_urlopen)
+    llm_headers = {
+        "X-TheraVoice-LLM-Provider": "openai",
+        "X-TheraVoice-LLM-Model": "test-model",
+        "X-TheraVoice-LLM-API-Key": "request-only-secret",
+    }
+
+    client.post(
+        "/patients",
+        json={
+            "id": "llm-consented",
+            "display_name": "Consented",
+            "consent_data_storage": True,
+            "consent_llm_processing": True,
+        },
+    )
+    generated = client.post(
+        "/ingestion/transcript",
+        headers=llm_headers,
+        json={"patient_id": "llm-consented", "text": "A sample observation."},
+    )
+
+    assert generated.status_code == 200
+    assert generated.json()["context"]["summary_generation_status"] == "generated"
+    assert "request-only-secret" not in generated.text
+    assert provider_requests[0][0].get_header("Authorization") == "Bearer request-only-secret"
+    assert json.loads(provider_requests[0][0].data)["model"] == "test-model"
+    assert "api_key" not in client.get("/patients/llm-consented").json()
+
+    client.post(
+        "/patients",
+        json={
+            "id": "llm-not-consented",
+            "display_name": "Not Consented",
+            "consent_data_storage": True,
+            "consent_llm_processing": False,
+        },
+    )
+    deterministic = client.post(
+        "/ingestion/transcript",
+        headers=llm_headers,
+        json={"patient_id": "llm-not-consented", "text": "A sample observation."},
+    )
+
+    assert deterministic.status_code == 200
+    assert deterministic.json()["context"]["summary_generation_status"] == "deterministic"
+    assert len(provider_requests) == 1
 
 
 def test_create_duplicate_patient_conflicts(client):

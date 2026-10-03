@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import brandArtwork from "../../assets/black.png";
+import brandArtworkwhite from "../../assets/white.png";
 
 const queryApi = new URLSearchParams(window.location.search).get("api");
 const API_BASE = (queryApi || import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
@@ -57,9 +59,15 @@ function AuthPanel({ onAuthenticated }) {
     return (
         <main className="auth-layout">
             <section className="auth-intro">
-                <p className="eyebrow">TheraVoice · Personal monitoring</p>
-                <h1>Speech patterns, understood over time.</h1>
-                <p className="tagline">Descriptive, non-diagnostic monitoring centered on each person's own baseline.</p>
+                <img className="auth-brand-artwork" src={brandArtworkwhite} alt="TheraVoice owl and wordmark" />
+                <p className="eyebrow">A personal communication companion</p>
+                <h1>Understand change, one day at a time.</h1>
+                <p className="auth-description">TheraVoice observes speech and language patterns over time, comparing each person's communication with their own history.</p>
+                <div className="profile-principles">
+                    <span>Personal baseline</span>
+                    <span>Descriptive summaries</span>
+                    <span>Never a diagnosis</span>
+                </div>
                 <p className="auth-note">Each account has a private workspace. Patient records are only available to the account that created them.</p>
             </section>
             <section className="card auth-card" aria-labelledby="auth-heading">
@@ -84,10 +92,17 @@ function AuthPanel({ onAuthenticated }) {
 function AuthenticatedDashboard({ token, user, onSignOut }) {
     const savedIdKey = `theravoice.lastPatientId.${user.id}`;
     const [patientId, setPatientId] = useState(() => window.localStorage.getItem(savedIdKey) || "");
+    const [patientRecord, setPatientRecord] = useState(null);
     const [patientName, setPatientName] = useState("");
     const [consentStorage, setConsentStorage] = useState(false);
     const [consentAudio, setConsentAudio] = useState(false);
     const [consentLlm, setConsentLlm] = useState(false);
+    const [patientLlmConsent, setPatientLlmConsent] = useState(false);
+    const [llmProvider, setLlmProvider] = useState("server");
+    const [llmModel, setLlmModel] = useState("");
+    const [llmApiKey, setLlmApiKey] = useState("");
+    const [llmSessionConfig, setLlmSessionConfig] = useState(null);
+    const [showApiKey, setShowApiKey] = useState(false);
     const [transcript, setTranscript] = useState("");
     const [analysisResult, setAnalysisResult] = useState(null);
     const [data, setData] = useState({ biomarkers: null, daily: null, events: [], timeline: null });
@@ -111,16 +126,73 @@ function AuthenticatedDashboard({ token, user, onSignOut }) {
         setStatus("Loading patient data…");
         setIsError(false);
         try {
-            await apiFetch(`/patients/${encodeURIComponent(normalizedId)}`, {}, token);
+            const patient = await apiFetch(`/patients/${encodeURIComponent(normalizedId)}`, {}, token);
             const [biomarkers, daily, events, timeline] = await Promise.all([
                 apiFetch(`/patients/${encodeURIComponent(normalizedId)}/biomarkers/latest`, {}, token).catch(() => null),
                 apiFetch(`/patients/${encodeURIComponent(normalizedId)}/reports/daily`, {}, token).catch(() => null),
                 apiFetch(`/patients/${encodeURIComponent(normalizedId)}/events`, {}, token).catch(() => []),
                 apiFetch(`/patients/${encodeURIComponent(normalizedId)}/reports/timeline`, {}, token).catch(() => null),
             ]);
+            if (patientRecord?.id !== normalizedId) {
+                setLlmProvider("server");
+                setLlmModel("");
+                setLlmApiKey("");
+                setLlmSessionConfig(null);
+                setShowApiKey(false);
+            }
+            setPatientRecord(patient);
+            setPatientLlmConsent(patient.consent_llm_processing);
             setPatientId(normalizedId);
             setData({ biomarkers, daily, events, timeline });
             setStatus(`Loaded ${normalizedId}.`);
+        } catch (error) {
+            setStatus(error.message);
+            setIsError(true);
+        } finally {
+            setBusy("");
+        }
+    }
+
+    async function savePatientLlmSettings(event) {
+        event.preventDefault();
+        if (!patientRecord) return;
+
+        const normalizedKey = llmApiKey.trim();
+        if (patientLlmConsent && llmProvider !== "server" && !normalizedKey) {
+            setStatus("Add the selected provider's API key before enabling summaries.");
+            setIsError(true);
+            return;
+        }
+
+        setBusy("llm");
+        setStatus("Saving patient AI settings…");
+        setIsError(false);
+        try {
+            const updatedPatient = await apiFetch(
+                `/patients/${encodeURIComponent(patientRecord.id)}/consent`,
+                {
+                    method: "PATCH",
+                    body: JSON.stringify({ consent_llm_processing: patientLlmConsent }),
+                },
+                token,
+            );
+            setPatientRecord(updatedPatient);
+            setPatientLlmConsent(updatedPatient.consent_llm_processing);
+            if (!updatedPatient.consent_llm_processing || llmProvider === "server") {
+                setLlmApiKey("");
+            }
+            setLlmSessionConfig(
+                updatedPatient.consent_llm_processing && llmProvider !== "server"
+                    ? { provider: llmProvider, model: llmModel.trim(), apiKey: normalizedKey }
+                    : null,
+            );
+            setStatus(
+                updatedPatient.consent_llm_processing
+                    ? llmProvider === "server"
+                        ? "Consent saved. Summaries will use the server's LLM configuration, if enabled."
+                        : "Consent saved. This provider key is active for this browser session only."
+                    : "LLM summary consent is off for this patient.",
+            );
         } catch (error) {
             setStatus(error.message);
             setIsError(true);
@@ -197,12 +269,30 @@ function AuthenticatedDashboard({ token, user, onSignOut }) {
             setIsError(true);
             return;
         }
+        if (patientRecord?.consent_llm_processing !== patientLlmConsent) {
+            setStatus("Save the patient's LLM consent setting before analyzing.");
+            setIsError(true);
+            return;
+        }
+        if (patientLlmConsent && llmProvider !== "server" && !llmSessionConfig) {
+            setStatus("Save the provider settings before analyzing with an LLM.");
+            setIsError(true);
+            return;
+        }
         setBusy("analyze");
         setStatus("Analyzing transcript…");
         setIsError(false);
         try {
+            const headers = llmSessionConfig && patientLlmConsent
+                ? {
+                    "X-TheraVoice-LLM-Provider": llmSessionConfig.provider,
+                    "X-TheraVoice-LLM-Model": llmSessionConfig.model,
+                    "X-TheraVoice-LLM-API-Key": llmSessionConfig.apiKey,
+                }
+                : undefined;
             const result = await apiFetch("/ingestion/transcript", {
                 method: "POST",
+                headers,
                 body: JSON.stringify({ patient_id: id, text: transcript.trim() }),
             }, token);
             setAnalysisResult(result);
@@ -219,10 +309,28 @@ function AuthenticatedDashboard({ token, user, onSignOut }) {
     return (
         <>
             <header className="app-header">
-                <div><p className="eyebrow">TheraVoice</p><p className="tagline">Descriptive, non-diagnostic speech &amp; communication monitoring.</p></div>
+                <div className="brand-lockup"><img src={brandArtworkwhite} alt="TheraVoice" /><span>Personal communication monitoring</span></div>
                 <div className="account-actions"><span>{user.display_name}</span><button className="secondary" type="button" onClick={onSignOut}>Sign out</button></div>
             </header>
             <main className="dashboard-main">
+                <section className="product-profile" aria-labelledby="profile-heading">
+                    <div className="product-profile-copy">
+                        <p className="eyebrow">TheraVoice profile</p>
+                        <h1 id="profile-heading">Communication, understood in context.</h1>
+                        <p>TheraVoice is an assistive monitoring companion. It tracks descriptive speech and language signals against a person's own baseline, then brings observations together as summaries and optional check-in suggestions.</p>
+                        <div className="profile-principles">
+                            <span>Personal history, not population norms</span>
+                            <span>Transparent observations</span>
+                            <span>No diagnosis or medication changes</span>
+                        </div>
+                    </div>
+                    <div className="profile-artwork"><img src={brandArtwork} alt="TheraVoice owl with a speech waveform" /></div>
+                </section>
+
+                <div className="workspace-heading">
+                    <div><p className="eyebrow">Your workspace</p><h2>Patient</h2></div>
+                    <p>Load an existing record or create a new one.</p>
+                </div>
                 <section className="card patient-picker">
                     <div className="patient-tools">
                         <label>Patient ID<input value={patientId} onChange={(event) => setPatientId(event.target.value)} placeholder="patient-demo-001" /></label>
@@ -246,6 +354,56 @@ function AuthenticatedDashboard({ token, user, onSignOut }) {
                         <button type="submit" disabled={Boolean(busy)}>Create patient</button>
                     </form>
                 </section>
+
+                {patientRecord && <section className="card patient-profile" aria-labelledby="patient-profile-heading">
+                    <div className="patient-profile-heading">
+                        <div><p className="eyebrow">Patient profile</p><h2 id="patient-profile-heading">{patientRecord.display_name}</h2></div>
+                        <span className="patient-id">{patientRecord.id}</span>
+                    </div>
+                    <form className="llm-settings" onSubmit={savePatientLlmSettings}>
+                        <div className="llm-settings-copy">
+                            <h3>AI summary settings</h3>
+                            <p>Structured monitoring stays deterministic. An LLM can only help phrase the summary, and only when this patient has consented.</p>
+                            <label className="check-label llm-consent">
+                                <input type="checkbox" checked={patientLlmConsent} onChange={(event) => setPatientLlmConsent(event.target.checked)} />
+                                Allow LLM-generated summaries for this patient
+                            </label>
+                        </div>
+                        <div className="llm-controls">
+                            <label>Provider
+                                <select value={llmProvider} onChange={(event) => {
+                                    const provider = event.target.value;
+                                    setLlmProvider(provider);
+                                    setLlmModel(provider === "gemini" ? "gemini-2.0-flash" : provider === "server" ? "" : "gpt-4o-mini");
+                                    setLlmApiKey("");
+                                    setLlmSessionConfig(null);
+                                }}>
+                                    <option value="server">Use server configuration</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="gemini">Google Gemini</option>
+                                </select>
+                            </label>
+                            {llmProvider !== "server" && <>
+                                <label>Model<input value={llmModel} onChange={(event) => { setLlmModel(event.target.value); setLlmSessionConfig(null); }} maxLength="100" /></label>
+                                <label>Provider API key
+                                    <span className="secret-input">
+                                        <input
+                                            autoComplete="off"
+                                            type={showApiKey ? "text" : "password"}
+                                            value={llmApiKey}
+                                            onChange={(event) => { setLlmApiKey(event.target.value); setLlmSessionConfig(null); }}
+                                            placeholder="Paste your provider key"
+                                            maxLength="4096"
+                                        />
+                                        <button className="secondary reveal-key" type="button" onClick={() => setShowApiKey(!showApiKey)}>{showApiKey ? "Hide" : "Show"}</button>
+                                    </span>
+                                </label>
+                            </>}
+                            <p className="credential-note">Keys stay in browser memory, are sent only with analysis requests, and are not saved to the patient record. Use HTTPS outside local development.</p>
+                            <button type="submit" disabled={Boolean(busy)}>{busy === "llm" ? "Saving…" : "Save patient settings"}</button>
+                        </div>
+                    </form>
+                </section>}
 
                 <section className="data-grid">
                     <section className="data-panel"><h2>Latest biomarkers</h2><Biomarkers snapshot={data.biomarkers} /></section>

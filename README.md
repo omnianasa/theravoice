@@ -532,6 +532,9 @@ to 3 for faster baseline-building test scenarios.
 
 ## Documentation
 
+- [Application workflow review and open issues](docs/application_issues.md):
+  current user journey, strengths, limitations, and recommended workflow
+  improvements.
 - [Limitations and non-diagnostic scope](docs/limitations.md): intended use,
   data integrity, medication and therapy boundaries, and safety.
 - [LLM integration](docs/llm_integration.md): provider setup, consent, data

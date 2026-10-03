@@ -10,13 +10,19 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from theravoice.api.dependencies import get_analysis_pipeline, get_db, require_owned_patient
+from theravoice.config.settings import LLMSettings, get_settings
 from theravoice.ingestion.audio_loader import AudioLoadError, load_audio
-from theravoice.pipeline.analysis_pipeline import AnalysisPipeline, AnalysisResult, PatientNotFoundError
+from theravoice.llm.client import LLMClient, create_llm_client
+from theravoice.pipeline.analysis_pipeline import (
+    AnalysisPipeline,
+    AnalysisResult,
+    PatientNotFoundError,
+)
 from theravoice.security.authorization import can_analyze_audio
 from theravoice.security.privacy import ConsentError, require_storage_consent
 from theravoice.storage.repositories.patient import PatientRepository
@@ -29,18 +35,49 @@ class TranscriptIngestionRequest(BaseModel):
     text: str
 
 
+def _request_llm_client(
+    provider: str | None,
+    model: str | None,
+    api_key: str | None,
+) -> LLMClient | None:
+    if provider is None and model is None and api_key is None:
+        return None
+    normalized_provider = (provider or "").strip().lower()
+    if normalized_provider not in {"openai", "gemini"}:
+        raise HTTPException(status_code=422, detail="LLM provider must be 'openai' or 'gemini'.")
+    if not api_key or not api_key.strip():
+        raise HTTPException(status_code=422, detail="An LLM API key is required for this provider.")
+
+    settings = get_settings().llm
+    return create_llm_client(
+        LLMSettings(
+            provider=normalized_provider,
+            model=(model or "").strip(),
+            api_key=api_key,
+            timeout_seconds=settings.timeout_seconds,
+        )
+    )
+
+
 @router.post("/transcript", response_model=AnalysisResult)
 def ingest_transcript(
     payload: TranscriptIngestionRequest,
     request: Request,
     pipeline: AnalysisPipeline = Depends(get_analysis_pipeline),
     db: Session = Depends(get_db),
+    llm_provider: str | None = Header(default=None, alias="X-TheraVoice-LLM-Provider"),
+    llm_model: str | None = Header(default=None, alias="X-TheraVoice-LLM-Model"),
+    llm_api_key: str | None = Header(default=None, alias="X-TheraVoice-LLM-API-Key"),
 ) -> AnalysisResult:
     try:
         user_id = getattr(request.state, "user_id", None)
         if user_id is not None:
             require_owned_patient(db, user_id, payload.patient_id)
-        return pipeline.run_transcript(patient_id=payload.patient_id, text=payload.text)
+        return pipeline.run_transcript(
+            patient_id=payload.patient_id,
+            text=payload.text,
+            llm_client=_request_llm_client(llm_provider, llm_model, llm_api_key),
+        )
     except PatientNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -53,6 +90,9 @@ async def ingest_audio(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     pipeline: AnalysisPipeline = Depends(get_analysis_pipeline),
+    llm_provider: str | None = Header(default=None, alias="X-TheraVoice-LLM-Provider"),
+    llm_model: str | None = Header(default=None, alias="X-TheraVoice-LLM-Model"),
+    llm_api_key: str | None = Header(default=None, alias="X-TheraVoice-LLM-API-Key"),
 ) -> AnalysisResult:
     """Ingest an audio recording (optionally with an accompanying transcript).
 
@@ -94,6 +134,7 @@ async def ingest_audio(
             duration_seconds=loaded.duration_seconds,
             text=text,
             source="upload",
+            llm_client=_request_llm_client(llm_provider, llm_model, llm_api_key),
         )
     except PatientNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
