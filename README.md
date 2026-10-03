@@ -1,8 +1,6 @@
 <div align="center">
 
-  <img src="assets/owl.png" width="150" alt="TheraVoice Owl">
-
-  <h1>TheraVoice</h1>
+  <img src="assets/image.png" width="500" alt="TheraVoice Owl">
 
   <p>
     <strong>Open-source, non-diagnostic speech and communication monitoring</strong>
