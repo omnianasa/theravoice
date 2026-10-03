@@ -1,13 +1,16 @@
-<p align="center">
-  <img src="assets/owl.png" width="300" alt="TheraVoice Owl">
+<div align="center">
+
+  <img src="assets/owl.png" width="150" alt="TheraVoice Owl">
+
+  <h1>TheraVoice</h1>
+
+  <p>
+    <strong>Open-source, non-diagnostic speech and communication monitoring</strong>
+  </p>
+
   <br>
-  <Strong> <font size ="+4">TheraVoice  </font></Strong>
-  <br>
-  <Small> Open-source, non-diagnostic speech and communication monitoring </Small>
-  <br>
-  <br>
-  <br>
-</p>
+
+</div>
 
 
 TheraVoice helps people and care teams observe how speech and language
