@@ -63,10 +63,31 @@ class Base(DeclarativeBase):
     pass
 
 
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String)
+    password_hash: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+
+
+class UserSessionModel(Base):
+    __tablename__ = "user_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
 class PatientModel(Base):
     __tablename__ = "patients"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    owner_user_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.id"), nullable=True, index=True
+    )
     display_name: Mapped[str] = mapped_column(String)
     timezone: Mapped[str] = mapped_column(String, default="UTC")
     consent_audio_analysis: Mapped[bool] = mapped_column(Boolean, default=False)

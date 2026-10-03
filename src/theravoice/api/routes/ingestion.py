@@ -10,11 +10,11 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from theravoice.api.dependencies import get_analysis_pipeline, get_db
+from theravoice.api.dependencies import get_analysis_pipeline, get_db, require_owned_patient
 from theravoice.ingestion.audio_loader import AudioLoadError, load_audio
 from theravoice.pipeline.analysis_pipeline import AnalysisPipeline, AnalysisResult, PatientNotFoundError
 from theravoice.security.authorization import can_analyze_audio
@@ -32,9 +32,14 @@ class TranscriptIngestionRequest(BaseModel):
 @router.post("/transcript", response_model=AnalysisResult)
 def ingest_transcript(
     payload: TranscriptIngestionRequest,
+    request: Request,
     pipeline: AnalysisPipeline = Depends(get_analysis_pipeline),
+    db: Session = Depends(get_db),
 ) -> AnalysisResult:
     try:
+        user_id = getattr(request.state, "user_id", None)
+        if user_id is not None:
+            require_owned_patient(db, user_id, payload.patient_id)
         return pipeline.run_transcript(patient_id=payload.patient_id, text=payload.text)
     except PatientNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -42,6 +47,7 @@ def ingest_transcript(
 
 @router.post("/audio", response_model=AnalysisResult)
 async def ingest_audio(
+    request: Request,
     patient_id: str = Form(...),
     text: str | None = Form(default=None),
     file: UploadFile = File(...),
@@ -58,6 +64,9 @@ async def ingest_audio(
     patient = PatientRepository(db).get(patient_id)
     if patient is None:
         raise HTTPException(status_code=404, detail=f"Patient '{patient_id}' not found.")
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is not None:
+        require_owned_patient(db, user_id, patient_id)
     try:
         require_storage_consent(patient.consent_data_storage)
         if not can_analyze_audio(patient):

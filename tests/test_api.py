@@ -29,6 +29,80 @@ def test_api_key_is_required_when_authentication_is_enabled(monkeypatch):
         assert test_client.get("/health", headers={"X-API-Key": "wrong"}).status_code == 401
         response = test_client.get("/health", headers={"X-API-Key": "test-secret"})
         assert response.status_code == 200
+        registration = test_client.post(
+            "/auth/register",
+            json={
+                "email": "production-user@example.com",
+                "display_name": "Production User",
+                "password": "production-user-password",
+            },
+        )
+        assert registration.status_code == 201
+        bearer = registration.json()["access_token"]
+        assert test_client.get(
+            "/health", headers={"Authorization": f"Bearer {bearer}"}
+        ).status_code == 200
+
+
+def test_account_register_login_me_and_logout(client):
+    registration = client.post(
+        "/auth/register",
+        json={
+            "email": "Account@Example.com",
+            "display_name": "Account User",
+            "password": "a-strong-password-42",
+        },
+    )
+    assert registration.status_code == 201
+    registered = registration.json()
+    assert registered["user"]["email"] == "account@example.com"
+    assert "password" not in registered["user"]
+    assert "password_hash" not in registered["user"]
+
+    login = client.post(
+        "/auth/login",
+        json={"email": "ACCOUNT@example.com", "password": "a-strong-password-42"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    current_user = client.get("/auth/me", headers=headers)
+    assert current_user.status_code == 200
+    assert current_user.json()["id"] == registered["user"]["id"]
+
+    assert client.post("/auth/logout", headers=headers).status_code == 204
+    assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.post(
+        "/auth/login", json={"email": "account@example.com", "password": "wrong-password"}
+    ).status_code == 401
+
+
+def test_accounts_cannot_access_each_others_patients_or_ingest_for_them(client):
+    first = client.post(
+        "/auth/register",
+        json={"email": "first@example.com", "display_name": "First", "password": "first-password-long"},
+    ).json()
+    first_headers = {"Authorization": f"Bearer {first['access_token']}"}
+    created = client.post(
+        "/patients",
+        headers=first_headers,
+        json={"id": "private-patient", "display_name": "Private", "consent_data_storage": True},
+    )
+    assert created.status_code == 201
+
+    second = client.post(
+        "/auth/register",
+        json={"email": "second@example.com", "display_name": "Second", "password": "second-password-long"},
+    ).json()
+    second_headers = {"Authorization": f"Bearer {second['access_token']}"}
+    assert client.get("/patients/private-patient", headers=second_headers).status_code == 404
+    assert client.post(
+        "/ingestion/transcript",
+        headers=second_headers,
+        json={"patient_id": "private-patient", "text": "private record"},
+    ).status_code == 404
+    assert client.get("/patients/private-patient", headers=first_headers).status_code == 200
 
 
 def test_create_and_get_patient(client):
