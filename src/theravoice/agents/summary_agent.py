@@ -42,9 +42,12 @@ class SummaryAgent(BaseAgent):
         summary_text = "\n".join(lines)
         generation_status = "deterministic"
         generation_error = None
-        if self._llm_client is not None and request.context.get("allow_llm_summary", False):
+        llm_client = request.context.get("llm_client", self._llm_client)
+        if llm_client is not None and request.context.get("allow_llm_summary", False):
             try:
-                generated = self._llm_client.generate(self._build_prompt(observations, context_notes, actions))
+                generated = llm_client.generate(
+                    self._build_prompt(observations, context_notes, actions)
+                )
                 if generated:
                     summary_text = generated
                     generation_status = "generated"

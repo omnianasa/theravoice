@@ -39,7 +39,7 @@ from theravoice.detection.change_detector import ChangeDetector
 from theravoice.detection.confidence import ConfidenceEstimator
 from theravoice.detection.thresholds import ThresholdManager
 from theravoice.ingestion.normalizer import is_empty_text, normalize_text
-from theravoice.llm.client import create_llm_client
+from theravoice.llm.client import LLMClient, create_llm_client
 from theravoice.schemas.action import Action
 from theravoice.schemas.audio import AudioSegment
 from theravoice.schemas.biomarker import BiomarkerSnapshot
@@ -134,6 +134,7 @@ class AnalysisPipeline:
         observation_time: datetime,
         text_length: int,
         allow_llm_summary: bool = False,
+        llm_client: LLMClient | None = None,
     ) -> AnalysisResult:
         """Baseline -> detection -> context -> orchestrator -> persistence.
 
@@ -173,6 +174,7 @@ class AnalysisPipeline:
             medication_schedules=medication_schedules,
             observation_time=observation_time,
             allow_llm_summary=allow_llm_summary,
+            llm_client=llm_client,
         )
 
         # 5. Persist events produced with real evidence only.
@@ -209,6 +211,7 @@ class AnalysisPipeline:
         patient_id: str,
         text: str,
         observation_time: datetime | None = None,
+        llm_client: LLMClient | None = None,
     ) -> AnalysisResult:
         """Run the full pipeline for a text transcript observation."""
         observation_time = observation_time or datetime.now(timezone.utc)
@@ -249,6 +252,7 @@ class AnalysisPipeline:
                 observation_time,
                 text_length,
                 allow_llm_summary=patient.consent_llm_processing,
+                llm_client=llm_client,
             )
             session.commit()
             return result
@@ -263,6 +267,7 @@ class AnalysisPipeline:
         text: str | None = None,
         source: str = "upload",
         observation_time: datetime | None = None,
+        llm_client: LLMClient | None = None,
     ) -> AnalysisResult:
         """Run the full pipeline for an audio observation.
 
@@ -337,6 +342,7 @@ class AnalysisPipeline:
                 observation_time,
                 text_length,
                 allow_llm_summary=patient.consent_llm_processing,
+                llm_client=llm_client,
             )
             session.commit()
             return result

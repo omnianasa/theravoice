@@ -18,6 +18,7 @@ from theravoice.agents.summary_agent import SummaryAgent
 from theravoice.agents.text_agent import TextAgent
 from theravoice.agents.therapy_agent import TherapyAgent
 from theravoice.detection.anomaly_detector import MetricAnomalyResult
+from theravoice.llm.client import LLMClient
 from theravoice.schemas.action import Action
 from theravoice.schemas.agent import AgentRequest, AgentResponse
 from theravoice.schemas.event import Event
@@ -62,6 +63,7 @@ class AgentOrchestrator:
         medication_schedules: list[MedicationSchedule] | None = None,
         observation_time: datetime | None = None,
         allow_llm_summary: bool = False,
+        llm_client: LLMClient | None = None,
     ) -> AgentResponse:
         observation_time = observation_time or datetime.now(timezone.utc)
         medication_schedules = medication_schedules or []
@@ -135,6 +137,10 @@ class AgentOrchestrator:
             therapy_response.actions
         )
 
+        summary_context = {"allow_llm_summary": allow_llm_summary}
+        if llm_client is not None:
+            summary_context["llm_client"] = llm_client
+
         summary_response = self._run_agent(
             self.summary_agent,
             AgentRequest(
@@ -145,7 +151,7 @@ class AgentOrchestrator:
                     "all_actions": all_actions,
                     "context_notes": context_notes,
                 },
-                context={"allow_llm_summary": allow_llm_summary},
+                context=summary_context,
             ),
         )
 

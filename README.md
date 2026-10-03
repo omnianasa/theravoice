@@ -1,28 +1,38 @@
-# TheraVoice
+<div align="center">
 
-**An open-source, non-diagnostic assistive speech/communication monitoring companion.**
+  <img src="assets/image.png" width="500" alt="TheraVoice Owl">
 
-TheraVoice observes changes in a person's speech and language patterns over
-time — relative to **their own personal baseline**, never a population norm
-— and surfaces those observations to the person (and optionally a
-clinician) as descriptive, non-diagnostic signals. Parkinson's disease is
-the primary motivating example, but the architecture is disease-agnostic.
+  <p>
+    <strong>Open-source, non-diagnostic speech and communication monitoring</strong>
+  </p>
 
-> ⚠️ **TheraVoice does not diagnose anything.** See
-> [`docs/limitations.md`](docs/limitations.md) for the full non-diagnostic
-> scope and safety constraints this project is built around.
+  <br>
+
+</div>
+
+
+TheraVoice helps people and care teams observe how speech and language
+patterns change over time. It compares each observation with that person's
+own history, then presents descriptive signals, summaries, and optional
+check-in suggestions. Parkinson's disease is a motivating use case; the
+architecture is disease-agnostic.
+
+TheraVoice is an assistive software project, not a medical device or a
+replacement for clinical assessment. It does not diagnose conditions or
+recommend medication changes. Review [Limitations and safety](docs/limitations.md)
+before using it with real health information.
 
 ---
 
 ## Table of contents
 
-- [Motivation](#motivation)
+- [What you can try](#what-you-can-try)
 - [Architecture](#architecture)
-- [Installation](#installation)
-- [Local development](#local-development)
+- [Quick start](#quick-start)
+- [Hands-on feature tour](#hands-on-feature-tour)
 - [Configuration](#configuration)
+- [Accounts](#accounts)
 - [LLM integration](#llm-integration)
-- [Run and verify](#run-and-verify)
 - [API](#api)
 - [Biomarker system](#biomarker-system)
 - [Baseline system](#baseline-system)
@@ -32,35 +42,28 @@ the primary motivating example, but the architecture is disease-agnostic.
 - [Bee integration](#bee-integration)
 - [AWS adapter](#aws-adapter)
 - [Testing](#testing)
-- [Known issues](#known-issues)
 - [Examples](#examples)
-- [Limitations](#limitations)
+- [Documentation](#documentation)
+- [Safety and limitations](#safety-and-limitations)
+- [Contributing](#contributing)
+- [License](#license)
 
----
+## What you can try
 
-## Motivation
-
-Clinical follow-up for neurological disorders is periodic — but day-to-day
-changes in communication (slower speech, more pauses, reduced pitch
-variation, increased hesitation) can happen between visits and go
-unrecorded. TheraVoice provides continuous, longitudinal, **assistive**
-monitoring so those changes are captured descriptively over time, without
-attempting to replace clinical evaluation.
+- A FastAPI service with interactive OpenAPI documentation.
+- A React dashboard for account sign-in, patient records, transcript
+  analysis, biomarkers, daily summaries, events, and timelines.
+- Text and audio analysis, with unavailable metrics explicitly identified
+  rather than guessed.
+- Personal baselines and change detection that need no external AI service.
+- Optional medication schedules, therapy exercises, and session tracking.
+- A bundled Bee-format sample that demonstrates a multi-day monitoring
+  workflow without a Bee device or account.
+- Optional OpenAI or Gemini summary generation, gated by patient consent.
+- Optional AWS adapters, disabled by default.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    A[Bee / Audio / Transcript] --> B[Data Ingestion]
-    B --> C[Preprocessing]
-    C --> D[Speech & Text Biomarker Extraction]
-    D --> E[Personal Baseline]
-    E --> F[Change / Anomaly Detection]
-    F --> G[Context Understanding]
-    G --> H[Multi-Agent System]
-    H --> I[Assistive Actions]
-    I --> J[Timeline / Daily Summary / Clinical Summary]
-```
 
 Every stage is a separate, independently-replaceable module under
 `src/theravoice/`. The full request/response flow for
@@ -74,65 +77,166 @@ receive transcript → validate patient → normalize → extract biomarkers
   → persist biomarkers/events/actions → return structured result
 ```
 
-## Installation
+## Quick start
 
-Requires **Python 3.12+**.
+Requirements: Python 3.12 or newer and Node.js with npm to build the
+dashboard. Run commands from the repository root. The PowerShell commands
+below are suitable for Windows; equivalent POSIX commands follow.
 
-```bash
-# from the repository root
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install --upgrade pip
-pip install -e ".[dev]"          # add ".[aws]" too if you need AWS adapters
+### Windows (PowerShell)
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+npm ci --prefix dashboard
+npm run build --prefix dashboard
+.\.venv\Scripts\Activate.ps1
 ```
 
-(If you're on Windows with `uv`, as described in this project's original
-dev notes: `uv venv`, `uv pip install -e ".[dev]"`.)
-
-## Local development
+### macOS / Linux
 
 ```bash
-cp .env.example .env    # optional: only needed to override secrets
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+npm ci --prefix dashboard
+npm run build --prefix dashboard
+```
+
+Start the development API:
+
+```powershell
+$env:THERAVOICE_ENV = "development"
 theravoice serve --reload
-# or: uvicorn theravoice.api.app:app --reload
 ```
 
-Then open:
+On macOS/Linux, use `THERAVOICE_ENV=development theravoice serve --reload`.
+The first startup initializes the configured database. Open the dashboard at
+http://127.0.0.1:8000/dashboard/ or the API explorer at
+http://127.0.0.1:8000/docs. Development defaults to SQLite, the mock Bee
+adapter, deterministic summaries, and API-key authentication disabled. The
+dashboard still uses account sign-in and scopes patient records to their
+owning account.
 
-- Swagger UI: http://127.0.0.1:8000/docs
-- Health check: http://127.0.0.1:8000/health
-
-Seed a demo patient and run a full pipeline example:
+To run the containerized application instead, use Docker Compose:
 
 ```bash
+docker compose up --build
+```
+
+The image builds the dashboard and runs the API with the production
+configuration. Register or sign in through the dashboard; production API
+requests require an account bearer token or a configured service API key.
+
+## Hands-on feature tour
+
+### 1. Create an account and patient
+
+Open `/dashboard/`, choose **Sign up**, and create an account. Create a
+patient record with a unique ID such as `patient-demo-001`. Grant data-storage
+consent to save observations. For the optional audio and LLM exercises below,
+also grant their separate consent flags. Use synthetic or sample data for
+this walkthrough, not real patient information.
+
+### 2. Analyze speech and build a personal baseline
+
+Use **Analyze a transcript** in the dashboard, or run the CLI after creating
+the demo patient in the local database:
+
+```powershell
 python scripts/seed_demo_patient.py
-python examples/analyze_transcript_example.py
-```
-
-Or via the CLI directly:
-
-```bash
 theravoice analyze --patient-id patient-demo-001 --text "Good morning, I am feeling okay today."
-theravoice sync-bee --patient-id patient-demo-001   # pulls from bee.mode's channel
 ```
 
-Or see the full real-Bee-shaped demo (works with zero Bee account needed):
+On Windows, activate `.venv` first or invoke the executables under
+`.venv\Scripts`. Submit several distinct observations for the same patient.
+The default development baseline requires
+five observations; earlier results correctly report `insufficient_data`.
+After analysis, explore the latest biomarkers, daily summary, events, and
+timeline in the dashboard. The complete response is also returned by the
+CLI and `POST /ingestion/transcript`.
 
-```bash
+### 3. Try audio, medication, and therapy endpoints
+
+The dashboard focuses on patient creation, transcript analysis, Bee sync,
+and reviewing monitoring results. Use Swagger UI at `/docs` for the broader
+API: upload audio at `POST /ingestion/audio` (the patient must have audio
+consent), inspect or update medication schedules and adherence records, list
+therapy exercises and recommendations, and create/list therapy sessions.
+The API explorer shows each request schema and response. Audio is analyzed
+in memory by default and raw audio is not retained.
+
+### 4. Run the bundled Bee demonstration
+
+In a second terminal, run the sample export through the full monitoring
+pipeline:
+
+```powershell
 python scripts/run_bee_demo.py
 ```
 
-The system works **without AWS** and **without a real Bee device** by
-default (`bee.mode: mock`) — but also genuinely connects to a real Bee
-account via `bee.mode: sync` or `bee.mode: proxy`; see
-[`docs/bee_integration.md`](docs/bee_integration.md).
+This uses six hand-authored Bee-format sample conversations, requires no
+Bee account, and demonstrates baseline-building followed by a changed
+observation. It is incremental: subsequent runs report no new conversations
+after the fixture has been processed. The fixture's provenance and format
+are described in
+[`data/examples/bee_sync_sample/README.md`](data/examples/bee_sync_sample/README.md).
+
+To connect your own Bee data, follow
+[`docs/bee_integration.md`](docs/bee_integration.md); the project supports a
+local `bee sync` export and Bee's local proxy.
+
+### 5. Enable optional LLM summaries
+
+LLM generation is off by default and only affects the human-readable daily
+summary. Set a provider key in the process environment and enable
+`consent_llm_processing` on the patient before testing. For example, in
+PowerShell:
+
+```powershell
+$env:THERAVOICE_LLM_PROVIDER = "openai"
+$env:THERAVOICE_LLM_MODEL = "gpt-4o-mini"
+$env:THERAVOICE_LLM_API_KEY = "<provider-api-key>"
+theravoice serve --reload
+```
+
+Use `gemini` to select Google Gemini. Do not commit or paste a real key into
+source control. Only structured summary evidence is sent to the provider;
+it can still contain sensitive health information. Read
+[`docs/llm_integration.md`](docs/llm_integration.md) before enabling an
+external provider.
+
+### 6. Try the API or run the tests
+
+The transcript endpoint can also be called directly:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ingestion/transcript \
+  -H "Content-Type: application/json" \
+  -d '{"patient_id":"patient-demo-001","text":"Good morning, I am feeling okay today."}'
+```
+
+To run the complete test suite from the repository root:
+
+```bash
+python -m pytest -q
+```
+
+On Windows, if the environment is not activated, run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
 
 ## Configuration
 
 Configuration is YAML-first, selected by `THERAVOICE_ENV`
 (`development` | `testing` | `production`), under `config/`. A small,
 explicit set of environment variables can override sensitive values without
-touching YAML or source control — see `.env.example`:
+touching YAML or source control. See the YAML examples under [`config/`](config/)
+and use environment variables or a secret manager for sensitive values:
 
 | Env var | Overrides |
 |---|---|
@@ -148,7 +252,9 @@ touching YAML or source control — see `.env.example`:
 
 Key config sections: `database`, `security`, `privacy`, `baseline`,
 `detection`, `hesitation` (per-language markers), `therapy`, `llm`, `aws`,
-`bee`, `logging`. LLM setup and provider behavior are documented in
+`bee`, `logging`. Configuration examples live in [`config/`](config/);
+there is no checked-in `.env` file. Set secrets in the process environment
+or a secret manager. LLM setup and provider behavior are documented in
 [`docs/llm_integration.md`](docs/llm_integration.md).
 
 When `security.require_api_key` is enabled, protected API routes, including
@@ -216,92 +322,6 @@ daily summary while keeping TheraVoice's structured analysis deterministic:
 
 The provider-specific configuration and data-handling guidance is in
 [`docs/llm_integration.md`](docs/llm_integration.md).
-
-## Run and Verify
-
-The project requires Python 3.12 or newer. From the repository root, the
-following PowerShell commands create the environment, install the project and
-test dependencies, and run the whole test suite:
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-Start the API locally with deterministic summaries (the default):
-
-```powershell
-$env:THERAVOICE_ENV = "development"
-$env:THERAVOICE_LLM_PROVIDER = "none"
-.\.venv\Scripts\python.exe -m uvicorn theravoice.api.app:app --reload
-```
-
-To build the React dashboard for FastAPI's `/dashboard/` route:
-
-```powershell
-npm ci --prefix dashboard
-npm run build --prefix dashboard
-```
-
-For Vite development with the API running on port 8000, use
-`npm run dev --prefix dashboard`. Set `THERAVOICE_API_URL` if the API uses a
-different address. Docker builds the dashboard bundle as part of its image.
-
-Check that it is running at `http://127.0.0.1:8000/health`. Swagger UI is at
-`http://127.0.0.1:8000/docs`. The first startup creates the configured
-database tables and applies the additive patient-consent upgrade.
-
-To test an external summary, set the provider before starting the server:
-
-```powershell
-$env:THERAVOICE_LLM_PROVIDER = "openai"
-$env:THERAVOICE_LLM_MODEL = "gpt-4o-mini"
-$env:THERAVOICE_LLM_API_KEY = "<provider-api-key>"
-.\.venv\Scripts\python.exe -m uvicorn theravoice.api.app:app --reload
-```
-
-Use `gemini` for Google Gemini. Keep API keys in environment variables or a
-secret manager; do not commit them. Create a local test patient with storage
-and LLM consent, then submit a transcript:
-
-```powershell
-$patient = @{
-  id = "llm-demo-001"
-  display_name = "LLM Demo"
-  consent_data_storage = $true
-  consent_llm_processing = $true
-} | ConvertTo-Json
-
-Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/patients" `
-  -ContentType "application/json" -Body $patient
-
-$transcript = @{
-  patient_id = "llm-demo-001"
-  text = "Good morning, I am feeling okay today."
-} | ConvertTo-Json
-
-Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/ingestion/transcript" `
-  -ContentType "application/json" -Body $transcript
-```
-
-The response includes the summary under `context.summary_text`. To revoke
-consent, send:
-
-```powershell
-Invoke-RestMethod -Method Patch `
-  -Uri "http://127.0.0.1:8000/patients/llm-demo-001/consent" `
-  -ContentType "application/json" `
-  -Body '{"consent_llm_processing": false}'
-```
-
-Do not use real patient data for a smoke test unless consent, provider terms,
-and organizational policy explicitly permit sending summary fields to that
-provider. A provider API key and network access are required for a live
-provider request; automated tests mock provider responses.
 
 ## API
 
@@ -398,12 +418,14 @@ malformed.
 
 ## Dashboard
 
-`dashboard/` is a small, dependency-free vanilla-JS single page app, mounted
-by the API itself at **`/dashboard`** (see `api/app.py`). It shows a
-patient's latest biomarkers, daily summary, recent events, and timeline, has
-a **"Sync from Bee"** button (calls `POST /patients/{id}/bee/sync`), and a
-box to run a transcript through the pipeline directly. No build step —
-open http://127.0.0.1:8000/dashboard/ once `theravoice serve` is running.
+`dashboard/` is a React single-page app served by FastAPI at `/dashboard/`
+when its production bundle exists. Build it with `npm ci --prefix dashboard`
+and `npm run build --prefix dashboard` before starting the API. The dashboard
+supports account sign-in, patient creation, transcript analysis, Bee sync,
+and review of biomarkers, daily summaries, events, and timelines. For local
+Vite development, run `npm run dev --prefix dashboard` and set
+`VITE_API_BASE` if the API is hosted at a non-default address; the `api`
+query parameter can also override the API URL.
 
 ## Privacy
 
@@ -461,6 +483,18 @@ or via the API / dashboard's "Sync from Bee" button:
 all guarded behind `aws.enabled: true` and a lazy `boto3` import — the
 system runs fully without AWS or the `aws` extra installed.
 
+Install the optional dependency with one of these commands:
+
+```bash
+python -m pip install -e ".[aws]"
+# Or include it with the development dependencies:
+python -m pip install -e ".[dev,aws]"
+```
+
+Configure AWS credentials through the standard AWS credential chain, set
+`THERAVOICE_AWS_ENABLED=true`, and provide the resource settings required by
+the adapter you use.
+
 > Note: `aws/lambda.py` is named to match the target project structure;
 > since `lambda` is a reserved Python keyword, import it via
 > `importlib.import_module("theravoice.aws.lambda")` rather than a normal
@@ -496,10 +530,41 @@ to 3 for faster baseline-building test scenarios.
 - `data/examples/sample_transcripts/sample_01.txt` — the canonical example
   transcript from the spec ("Good morning, I am feeling okay today.").
 
-## Limitations
+## Documentation
+
+- [Application workflow review and open issues](docs/application_issues.md):
+  current user journey, strengths, limitations, and recommended workflow
+  improvements.
+- [Limitations and non-diagnostic scope](docs/limitations.md): intended use,
+  data integrity, medication and therapy boundaries, and safety.
+- [LLM integration](docs/llm_integration.md): provider setup, consent, data
+  handling, and fallback behavior.
+- [Bee integration](docs/bee_integration.md): local sync and proxy setup,
+  sample data, and known data limitations.
+- [Sample Bee export](data/examples/bee_sync_sample/README.md): fixture
+  provenance and how the bundled conversations demonstrate change detection.
+- [Development and deployment configuration](config/): development,
+  testing, and production YAML settings.
+
+The interactive API reference is available at `/docs` while the service is
+running; the OpenAPI schema is at `/openapi.json`.
+
+## Safety and limitations
 
 See [`docs/limitations.md`](docs/limitations.md) — this project is
-deliberately, permanently non-diagnostic and non-prescriptive.
+deliberately non-diagnostic and non-prescriptive. Do not use it as a
+diagnostic tool, treatment recommendation, or substitute for clinical care.
+
+## Contributing
+
+Issues, documentation improvements, and pull requests are welcome. Before
+opening a pull request, run the test suite and linter from the repository
+root:
+
+```bash
+python -m pytest -q
+ruff check .
+```
 
 ## License
 
