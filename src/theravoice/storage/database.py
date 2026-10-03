@@ -56,6 +56,7 @@ def init_db() -> None:
     engine = get_engine()
     Base.metadata.create_all(engine)
     _ensure_patient_llm_consent_column(engine)
+    _ensure_patient_owner_column(engine)
 
 
 def _ensure_patient_llm_consent_column(engine: Engine) -> None:
@@ -63,6 +64,21 @@ def _ensure_patient_llm_consent_column(engine: Engine) -> None:
     if "patients" not in inspector.get_table_names():
         return
     column = "consent_llm_processing"
+    if column in {item["name"] for item in inspector.get_columns("patients")}:
+        return
+
+    column_definition = CreateColumn(Base.metadata.tables["patients"].c[column]).compile(
+        dialect=engine.dialect
+    )
+    with engine.begin() as connection:
+        connection.execute(text(f"ALTER TABLE patients ADD COLUMN {column_definition}"))
+
+
+def _ensure_patient_owner_column(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "patients" not in inspector.get_table_names():
+        return
+    column = "owner_user_id"
     if column in {item["name"] for item in inspector.get_columns("patients")}:
         return
 

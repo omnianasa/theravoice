@@ -13,9 +13,10 @@ class PatientRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def create(self, patient: Patient) -> Patient:
+    def create(self, patient: Patient, owner_user_id: str | None = None) -> Patient:
         model = PatientModel(
             id=patient.id,
+            owner_user_id=owner_user_id,
             display_name=patient.display_name,
             timezone=patient.timezone,
             consent_audio_analysis=patient.consent_audio_analysis,

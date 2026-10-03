@@ -151,13 +151,30 @@ Key config sections: `database`, `security`, `privacy`, `baseline`,
 `bee`, `logging`. LLM setup and provider behavior are documented in
 [`docs/llm_integration.md`](docs/llm_integration.md).
 
-When `security.require_api_key` is enabled, every API route, including
-`/health`, requires the configured key in the `X-API-Key` header. The
-production configuration enables this and fails closed if no key is set.
-Development defaults to authentication disabled; do not expose that
-configuration to an untrusted network. Set `THERAVOICE_API_KEY` through a
-secret manager or environment variable before deployment. Requests with a
-missing or incorrect key receive HTTP `401`.
+When `security.require_api_key` is enabled, protected API routes, including
+`/health`, require either the configured service key in `X-API-Key` or a
+valid account bearer token. The production configuration enables this and
+fails closed for requests without either credential. Development defaults
+to authentication disabled; do not expose that configuration to an
+untrusted network. Set `THERAVOICE_API_KEY` through a secret manager or
+environment variable before deployment.
+
+## Accounts
+
+Anyone can register with `POST /auth/register` using an email, display name,
+and password of at least 12 characters. `POST /auth/login` returns a bearer
+token that expires after 12 hours; send it as
+`Authorization: Bearer <access_token>`. Use `POST /auth/logout` to revoke the
+current session. Passwords are stored as scrypt hashes, and session tokens
+are stored only as hashes.
+
+Patients created with an account session belong to that account. Other
+accounts receive `404` when requesting those patients or submitting
+observations for them. Existing patient rows are not automatically assigned
+to an account, so migrate ownership before account users need those records.
+Email verification, password recovery, and login rate limiting are not yet
+implemented; use HTTPS and add those controls before a public production
+launch.
 
 ## LLM Integration
 
@@ -220,6 +237,17 @@ $env:THERAVOICE_ENV = "development"
 $env:THERAVOICE_LLM_PROVIDER = "none"
 .\.venv\Scripts\python.exe -m uvicorn theravoice.api.app:app --reload
 ```
+
+To build the React dashboard for FastAPI's `/dashboard/` route:
+
+```powershell
+npm ci --prefix dashboard
+npm run build --prefix dashboard
+```
+
+For Vite development with the API running on port 8000, use
+`npm run dev --prefix dashboard`. Set `THERAVOICE_API_URL` if the API uses a
+different address. Docker builds the dashboard bundle as part of its image.
 
 Check that it is running at `http://127.0.0.1:8000/health`. Swagger UI is at
 `http://127.0.0.1:8000/docs`. The first startup creates the configured

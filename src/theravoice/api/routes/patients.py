@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from theravoice.api.dependencies import get_db
@@ -17,7 +17,9 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 
 
 @router.post("", response_model=Patient, status_code=201)
-def create_patient(payload: PatientCreateRequest, db: Session = Depends(get_db)) -> Patient:
+def create_patient(
+    payload: PatientCreateRequest, request: Request, db: Session = Depends(get_db)
+) -> Patient:
     repo = PatientRepository(db)
     if repo.exists(payload.id):
         raise HTTPException(status_code=409, detail=f"Patient '{payload.id}' already exists.")
@@ -29,7 +31,7 @@ def create_patient(payload: PatientCreateRequest, db: Session = Depends(get_db))
         consent_data_storage=payload.consent_data_storage,
         consent_llm_processing=payload.consent_llm_processing,
     )
-    return repo.create(patient)
+    return repo.create(patient, owner_user_id=getattr(request.state, "user_id", None))
 
 
 @router.get("/{patient_id}", response_model=Patient)

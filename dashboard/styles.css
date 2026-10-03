@@ -91,6 +91,20 @@ input#patient-id {
   min-width: 200px;
 }
 
+.api-key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.api-key-field input {
+  width: 100%;
+}
+
 textarea {
   width: 100%;
   margin: 8px 0;
@@ -155,4 +169,205 @@ footer {
   color: var(--muted);
   font-size: 0.8rem;
   padding: 16px;
+}
+
+.auth-layout {
+  min-height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8vh 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 420px);
+  align-items: center;
+  gap: clamp(40px, 8vw, 112px);
+  background-image: radial-gradient(ellipse at 12% 12%, rgba(76, 175, 125, 0.12), transparent 36%);
+}
+
+.auth-intro h1 {
+  max-width: 620px;
+  margin: 14px 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  font-weight: 500;
+  line-height: 1.04;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--ok);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.auth-intro .tagline {
+  max-width: 420px;
+  font-size: 1rem;
+}
+
+.auth-note {
+  max-width: 420px;
+  margin-top: 48px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.auth-card {
+  width: 100%;
+  margin: 0;
+  padding: 24px;
+  background: rgba(23, 26, 33, 0.92);
+}
+
+.auth-card h2,
+.create-patient h2,
+.transcript-panel h2 {
+  margin: 0 0 18px;
+  font-size: 1.25rem;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 24px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.auth-tabs button {
+  background: transparent;
+  color: var(--muted);
+}
+
+.auth-tabs button.active {
+  background: var(--accent);
+  color: #0a0d12;
+}
+
+.stack,
+.stack label,
+.create-patient-form,
+.create-patient-form > label,
+.transcript-panel form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.stack { gap: 16px; }
+.stack .muted { margin: -8px 0 0; }
+.stack input,
+.create-patient-form input:not([type="checkbox"]),
+.patient-tools input,
+.transcript-panel textarea {
+  width: 100%;
+  min-height: 42px;
+}
+
+.secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.app-header {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px clamp(16px, 5vw, 64px);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header .eyebrow,
+.app-header .tagline { margin: 0; }
+.account-actions,
+.button-row,
+.event-heading { display: flex; align-items: center; gap: 12px; }
+.account-actions { color: var(--muted); }
+
+.dashboard-main {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 28px clamp(16px, 5vw, 64px) 56px;
+}
+
+.patient-picker { margin-bottom: 14px; }
+.patient-tools {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+}
+.patient-tools > label,
+.create-patient-form > label { display: grid; gap: 6px; }
+.status { min-height: 1.35em; margin: 12px 0 0; color: var(--muted); font-size: 0.9rem; }
+.status.error { color: var(--danger); }
+
+.consent-banner {
+  margin: 14px 0 24px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--warn);
+  background: rgba(240, 180, 41, 0.08);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.create-patient {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.5fr);
+  gap: 24px;
+  align-items: start;
+}
+.create-patient .eyebrow { margin-bottom: 4px; }
+.create-patient h2 { margin-bottom: 0; }
+.create-patient-form { gap: 14px; }
+.consent-options { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.check-label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.88rem; }
+.check-label input { width: 16px; height: 16px; accent-color: var(--ok); }
+
+.data-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px 32px;
+  margin: 32px 0;
+}
+.data-panel { min-width: 0; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.data-panel h2 { margin: 0 0 14px; font-size: 1rem; }
+.data-panel h3 { font-size: 0.9rem; }
+.data-panel ul { padding-left: 20px; }
+.data-panel li { margin-bottom: 6px; }
+.table-scroll { overflow-x: auto; }
+.badge { white-space: nowrap; }
+.event-heading { justify-content: space-between; }
+.event-item, .timeline-item { border-color: var(--border); }
+.event-item.warning { border-color: var(--warn); }
+.event-item.significant { border-color: var(--danger); }
+.transcript-panel { display: grid; grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.5fr); gap: 24px; }
+.transcript-panel form { display: grid; gap: 12px; }
+.transcript-panel textarea { min-height: 108px; }
+.result-box { grid-column: 1 / -1; margin: 0; }
+
+@media (max-width: 720px) {
+  .auth-layout { min-height: 100svh; grid-template-columns: 1fr; gap: 28px; padding: 36px 18px; }
+  .auth-intro h1 { font-size: 2.75rem; }
+  .auth-note { margin-top: 18px; }
+  .auth-card { padding: 20px; }
+  .app-header { align-items: flex-start; padding: 14px 16px; }
+  .account-actions { align-items: flex-end; flex-direction: column; gap: 6px; font-size: 0.82rem; }
+  .dashboard-main { padding-top: 18px; }
+  .patient-tools, .create-patient, .transcript-panel { grid-template-columns: 1fr; }
+  .button-row { flex-wrap: wrap; }
+  .data-grid { grid-template-columns: 1fr; gap: 18px; margin: 24px 0; }
+  .result-box { grid-column: auto; }
 }

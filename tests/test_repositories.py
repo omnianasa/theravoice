@@ -10,7 +10,11 @@ from theravoice.schemas.biomarker import BiomarkerSnapshot, BiomarkerValue
 from theravoice.schemas.event import Event
 from theravoice.schemas.evidence import Evidence
 from theravoice.schemas.patient import Patient
-from theravoice.storage.database import _ensure_patient_llm_consent_column
+from theravoice.storage.database import (
+    _ensure_patient_llm_consent_column,
+    _ensure_patient_owner_column,
+)
+from theravoice.storage.models import Base
 from theravoice.storage.repositories.biomarker import BiomarkerRepository
 from theravoice.storage.repositories.event import EventRepository
 from theravoice.storage.repositories.patient import PatientRepository
@@ -45,6 +49,26 @@ def test_existing_patient_table_gets_default_false_llm_consent_column():
             text("SELECT consent_llm_processing FROM patients WHERE id = 'p1'")
         ).scalar_one()
     assert consent is False or consent == 0
+    engine.dispose()
+
+
+def test_existing_patient_table_gets_nullable_account_owner_column():
+    engine = create_engine("sqlite://")
+    Base.metadata.tables["users"].create(engine)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE patients (id VARCHAR PRIMARY KEY)"))
+
+    _ensure_patient_owner_column(engine)
+
+    columns = {column["name"]: column for column in inspect(engine).get_columns("patients")}
+    assert "owner_user_id" in columns
+    assert columns["owner_user_id"]["nullable"] is True
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO patients (id) VALUES ('legacy-patient')"))
+        owner = connection.execute(
+            text("SELECT owner_user_id FROM patients WHERE id = 'legacy-patient'")
+        ).scalar_one()
+    assert owner is None
     engine.dispose()
 
 
