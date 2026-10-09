@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/black.png" width="500" alt="TheraVoice Owl">
+  <img src="assets/image.png" width="500" alt="TheraVoice Logo">
 
   <p>
     <strong>Open-source, non-diagnostic speech and communication monitoring</strong>
@@ -113,12 +113,25 @@ theravoice serve --reload
 ```
 
 On macOS/Linux, use `THERAVOICE_ENV=development theravoice serve --reload`.
-The first startup initializes the configured database. Open the dashboard at
-http://127.0.0.1:8000/dashboard/ or the API explorer at
-http://127.0.0.1:8000/docs. Development defaults to SQLite, the mock Bee
-adapter, deterministic summaries, and API-key authentication disabled. The
-dashboard still uses account sign-in and scopes patient records to their
-owning account.
+The first startup initializes the configured database. With the API running
+and the dashboard production bundle built, open
+http://127.0.0.1:8000/dashboard/. The same API serves its explorer at
+http://127.0.0.1:8000/docs.
+
+For frontend development with Vite hot reload, leave the API running in one
+terminal and start Vite from another:
+
+```powershell
+npm run dev --prefix dashboard
+```
+
+Open the URL printed by Vite (by default http://localhost:5173/). Vite proxies
+`/api/v1` requests to the API at `http://127.0.0.1:8000` by default; set
+`THERAVOICE_API_URL` if the API is listening elsewhere.
+
+Development defaults to SQLite, the mock Bee adapter, deterministic
+summaries, and API-key authentication disabled. The dashboard still uses
+account sign-in and scopes patient records to their owning account.
 
 To run the containerized application instead, use Docker Compose:
 
