@@ -43,17 +43,26 @@ This produces `bee-sync/conversations/<date>/<id>.md` files shaped like:
 - Speaker 2: I'm doing well, thanks!
 ```
 
-Then in `config/development.yaml` (or `production.yaml`):
+Then in `config/development.yaml` (or `production.yaml`), configure an
+explicit source-to-patient binding before importing any real data:
 
 ```yaml
 bee:
   mode: sync
   sync_dir: "bee-sync"
+  source_id: "my-bee-source"
+  patient_id: "patient-demo-001"
 ```
 
 `BeeSyncAdapter` (`src/theravoice/ingestion/bee.py`) parses these files
 directly off disk -- no network call is made by TheraVoice at all in this
 mode. Good for backfill / batch analysis of historical conversations.
+`source_id` is a stable, operator-assigned identifier for the configured
+local source; it is not a Bee-issued or independently verified account ID.
+This deployment-level binding must be configured and protected by the
+operator. The patient ID on an API or CLI request must match the configured
+patient. A source already recorded against another patient is rejected; do
+not reassign it by changing the request.
 
 ### 2. `bee.mode: proxy` -- call the local HTTP API (`BeeProxyAdapter`)
 
@@ -72,6 +81,8 @@ doing the forwarding. Then:
 bee:
   mode: proxy
   proxy_base_url: "http://127.0.0.1:8787"
+  source_id: "my-bee-source"
+  patient_id: "patient-demo-001"
 ```
 
 `BeeProxyAdapter` calls, using only Python's standard library
@@ -84,6 +95,12 @@ bee:
 
 This is the near-live path: a "Sync from Bee" click can pick up conversations
 from minutes ago.
+
+The current configuration binds one Bee source to one patient per
+TheraVoice deployment. Do not expose the Bee proxy outside the local
+machine. A multi-user service with multiple Bee accounts needs a
+per-user-managed source registry and verified account linking; the
+deployment-level binding here is not a substitute for that capability.
 
 ### 3. `bee.mode: mock` (default) -- no Bee account at all
 
@@ -127,10 +144,54 @@ entry so you can see `ChangeDetector` and the agents actually produce a
 
 1. `bee login`
 2. Either `bee sync --output bee-sync` (batch) or `bee proxy` (near-live)
-3. Set `bee.mode` accordingly in `config/development.yaml`
+3. In `config/development.yaml`, set `bee.mode`, `bee.source_id`, and
+   `bee.patient_id` (as shown above). The source ID should remain stable
+   across restarts. Both source and patient values are required for real
+   modes.
 4. `theravoice sync-bee --patient-id <your-patient-id>` (CLI), or
-   `POST /patients/<your-patient-id>/bee/sync` (API / dashboard "Sync from
-   Bee" button)
+   `POST /api/v1/patients/<your-patient-id>/integrations/bee/sync` (the
+   legacy `POST /patients/<your-patient-id>/bee/sync` remains available).
+
+The versioned API also exposes:
+
+- `GET /api/v1/patients/<patient-id>/integrations/bee/status` -- configured
+  mode and persisted sync state. This is a configuration/status read, not a
+  live connectivity probe.
+- `GET /api/v1/integrations` -- configured integrations without revealing
+  local file paths, proxy addresses, or credentials.
+- `GET /api/v1/info` and `GET /api/v1/health`.
+- `POST /api/v1/analyses/transcript` and `/api/v1/analyses/audio`; all
+  existing API routes are also available under the `/api/v1` prefix.
+
+The legacy unversioned routes remain available for existing clients. API
+requests use the same authentication and patient authorization as the
+unversioned routes.
+
+Bee conversations are namespaced by `source_id` and use their stable
+conversation IDs as transcript IDs. Sync status persists in the
+`bee_sync_states` table; already imported records are skipped when a sync is
+repeated, including records with equal timestamps. The last successfully
+handled record ID is stored as a recovery marker. A process interruption can
+leave a sync `in_progress`; rerunning sync re-fetches and deduplicates the
+records. This is idempotent for sequential retries, not a claim of
+exactly-once processing under concurrent sync requests.
+
+The proxy currently reads at most `bee.max_conversations_per_poll` records
+per poll (default 50); the adapter does not yet follow a provider pagination
+cursor. Increase the configured limit as needed, and do not interpret a
+successful capped poll as proof that older provider history has all been
+imported.
+
+For a public API, the standard FastAPI OpenAPI explorer is at `/docs` and
+the schema is at `/openapi.json`. A local authenticated transcript example
+is:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/analyses/transcript \
+  -H "Authorization: Bearer <session-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"patient_id":"patient-demo-001","text":"Good morning, I feel okay today."}'
+```
 
 Either path prints/returns exactly what changed relative to that patient's
 own baseline, plus any suggested check-in or exercise -- never a diagnosis.
@@ -141,3 +202,6 @@ The Bee app running on Apple Watch captures conversations through the same
 Bee account as the wearable; from TheraVoice's point of view there is no
 difference -- both surface through the same `bee sync` export / `bee proxy`
 API described above. No Watch-specific code is needed or has been added.
+
+Routine tests use mock/local fixtures only. No live Bee account, proxy
+session, or physical device connection has been verified by this project.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -69,13 +69,19 @@ def current_user(
     return UserResponse(id=user.id, email=user.email, display_name=user.display_name)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    response_class=Response,
+)
 def logout(
     authorization: str | None = Header(default=None), db: Session = DB_SESSION
-) -> None:
+) -> Response:
     _user_from_authorization(db, authorization)
     _, token = authorization.split(" ", 1)
     revoke_session(db, token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _user_from_authorization(db: Session, authorization: str | None):

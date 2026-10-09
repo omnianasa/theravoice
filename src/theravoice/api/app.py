@@ -25,6 +25,7 @@ from theravoice.api.routes import (
     patients,
     reports,
     therapy,
+    v1,
 )
 from theravoice.config.settings import get_settings
 from theravoice.storage.database import init_db
@@ -54,16 +55,19 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(RequestLoggingMiddleware)
-    # Permissive CORS by default so the dashboard (or any local tool) can
-    # call this API from a different origin/port during development. Lock
-    # this down (e.g. to specific origins) before exposing a production
-    # deployment to the public internet.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors.allowed_origins,
         allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-API-Key",
+            "X-TheraVoice-LLM-Provider",
+            "X-TheraVoice-LLM-Model",
+            "X-TheraVoice-LLM-API-Key",
+        ],
     )
     register_error_handlers(app)
 
@@ -79,13 +83,29 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, **protected)
     app.include_router(bee.router, **protected)
 
+    # Versioned aliases are additive; legacy routes remain available for
+    # existing dashboard and API clients during migration.
+    app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(health.router, prefix="/api/v1", **protected)
+    app.include_router(patients.router, prefix="/api/v1", **protected)
+    app.include_router(ingestion.router, prefix="/api/v1", **protected)
+    app.include_router(biomarkers.router, prefix="/api/v1", **protected)
+    app.include_router(events.router, prefix="/api/v1", **protected)
+    app.include_router(medication.router, prefix="/api/v1", **protected)
+    app.include_router(therapy.router, prefix="/api/v1", **protected)
+    app.include_router(reports.router, prefix="/api/v1", **protected)
+    app.include_router(bee.router, prefix="/api/v1", **protected)
+    app.include_router(bee.v1_router, **protected)
+    app.include_router(v1.router, dependencies=protected["dependencies"])
+
     # Serve the compiled React dashboard at /dashboard.
     dashboard_dir = Path(__file__).resolve().parents[3] / "dashboard" / "dist"
     if dashboard_dir.is_dir():
-        app.mount("/dashboard", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")
+        app.mount(
+            "/dashboard", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard"
+        )
 
     return app
 
 
 app = create_app()
-

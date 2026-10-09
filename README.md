@@ -79,7 +79,7 @@ receive transcript → validate patient → normalize → extract biomarkers
 
 ## Quick start
 
-Requirements: Python 3.12 or newer and Node.js with npm to build the
+Requirements: Python 3.12 or newer and Node.js 22.12 or newer with npm to build the
 dashboard. Run commands from the repository root. The PowerShell commands
 below are suitable for Windows; equivalent POSIX commands follow.
 
@@ -278,6 +278,10 @@ Patients created with an account session belong to that account. Other
 accounts receive `404` when requesting those patients or submitting
 observations for them. Existing patient rows are not automatically assigned
 to an account, so migrate ownership before account users need those records.
+The configured service API key is limited to health and informational
+endpoints; use a bearer user session for patient-scoped operations. This
+avoids treating a single deployment-wide key as authorization for every
+patient.
 Email verification, password recovery, and login rate limiting are not yet
 implemented; use HTTPS and add those controls before a public production
 launch.
@@ -342,6 +346,16 @@ The provider-specific configuration and data-handling guidance is in
 | `GET /patients/{id}/reports/timeline` | Chronological event timeline |
 | `GET /patients/{id}/reports/clinical` | Clinician-oriented longitudinal summary |
 | `POST /patients/{id}/bee/sync` | Pull new conversations from the configured Bee channel and analyze them |
+
+All existing API routes are also available under `/api/v1`. The stable
+aliases include `GET /api/v1/health`, `GET /api/v1/info`,
+`GET /api/v1/integrations`, `POST /api/v1/analyses/transcript`,
+`POST /api/v1/analyses/audio`,
+`POST /api/v1/patients/{id}/integrations/bee/sync`, and the corresponding
+Bee `/status` endpoint. Legacy routes remain available. The Bee integration
+status reports configuration and persisted state; it does not probe Bee.
+See [Bee integration](docs/bee_integration.md) for authentication,
+source-to-patient binding, limitations, and CLI setup.
 
 `POST /ingestion/transcript` example:
 
@@ -421,11 +435,22 @@ malformed.
 `dashboard/` is a React single-page app served by FastAPI at `/dashboard/`
 when its production bundle exists. Build it with `npm ci --prefix dashboard`
 and `npm run build --prefix dashboard` before starting the API. The dashboard
-supports account sign-in, patient creation, transcript analysis, Bee sync,
-and review of biomarkers, daily summaries, events, and timelines. For local
-Vite development, run `npm run dev --prefix dashboard` and set
-`VITE_API_BASE` if the API is hosted at a non-default address; the `api`
-query parameter can also override the API URL.
+provides account sign-in, patient retrieval by a known ID or creation,
+transcript/audio analysis, biomarker and event history, reports, care records,
+and Bee sync. The API does not expose a patient-list operation; the dashboard
+does not invent one. See [docs/frontend_integration.md](docs/frontend_integration.md)
+for the verified route matrix, local setup, environment variables, and
+deployment requirements.
+
+For local Vite development, run `npm run dev --prefix dashboard`; by default,
+Vite proxies `/api/v1` to `http://127.0.0.1:8000`. `THERAVOICE_API_URL` changes
+that development proxy target. `VITE_API_BASE_URL` is optional public
+configuration for a separately hosted API origin; it must not contain secrets.
+`VITE_BASE_PATH` controls the asset base path (`/dashboard/` for the FastAPI
+mount or `/` for a root static host). The dashboard stores its bearer token
+only in tab-scoped session storage; this is not an XSS protection. Never place
+backend service keys, LLM provider credentials, Bee credentials, or AWS secrets
+in frontend environment variables.
 
 ## Privacy
 
@@ -474,8 +499,13 @@ bee sync --output bee-sync        # or: bee proxy  (see docs/bee_integration.md)
 theravoice sync-bee --patient-id patient-demo-001
 ```
 
-or via the API / dashboard's "Sync from Bee" button:
-`POST /patients/{id}/bee/sync`.
+Before the first real sync, configure `bee.source_id` and `bee.patient_id`
+alongside `bee.mode` in `config/development.yaml`. This is an explicit
+deployment-managed binding; the request cannot choose a different patient.
+The API/dashboard can then use `POST
+/api/v1/patients/{id}/integrations/bee/sync`; the unversioned route remains
+for compatibility. See [docs/bee_integration.md](docs/bee_integration.md)
+for setup details and important pagination/identity limitations.
 
 ## AWS adapter
 

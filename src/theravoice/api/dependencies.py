@@ -65,6 +65,23 @@ def authenticate_request(
         _require_owned_patient(request, db, user.id)
         return
 
+    if x_api_key is not None and verify_api_key(x_api_key):
+        if request.url.path not in {
+            "/health",
+            "/api/v1/health",
+            "/api/v1/info",
+            "/api/v1/integrations",
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "A user session is required for patient-scoped access; "
+                    "service API keys are limited to health and informational endpoints."
+                ),
+            )
+        request.state.user_id = None
+        return
+
     if verify_api_key(x_api_key):
         request.state.user_id = None
         return

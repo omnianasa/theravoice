@@ -63,7 +63,12 @@ def main() -> None:
             session.commit()
 
     bee_adapter = BeeSyncAdapter(sync_dir=SAMPLE_SYNC_DIR)
-    pipeline = MonitoringPipeline(bee_adapter=bee_adapter, session_factory=session_factory)
+    pipeline = MonitoringPipeline(
+        bee_adapter=bee_adapter,
+        session_factory=session_factory,
+        source_id="demo-fixture",
+        bound_patient_id=PATIENT_ID,
+    )
 
     print(f"Pulling Bee conversations for {PATIENT_ID} from {SAMPLE_SYNC_DIR} ...\n")
     results = pipeline.poll_patient(PATIENT_ID)

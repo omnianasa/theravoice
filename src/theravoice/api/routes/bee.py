@@ -11,20 +11,29 @@ raw data dump.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from theravoice.api.dependencies import get_db
-from theravoice.ingestion.bee import BeeConnectionError
+from theravoice.api.dependencies import DB_SESSION
+from theravoice.config.settings import get_settings
+from theravoice.ingestion.bee import BeeBindingError, BeeConnectionError
 from theravoice.pipeline.analysis_pipeline import AnalysisResult, PatientNotFoundError
 from theravoice.pipeline.monitoring_pipeline import build_monitoring_pipeline
 from theravoice.schemas.action import Action
 from theravoice.schemas.event import Event
 from theravoice.storage.database import get_session_factory
+from theravoice.storage.models import BeeSyncStateModel
+from theravoice.storage.repositories.bee_sync import BeeSyncRepository
 from theravoice.storage.repositories.patient import PatientRepository
 
 router = APIRouter(prefix="/patients/{patient_id}/bee", tags=["bee"])
+v1_router = APIRouter(
+    prefix="/api/v1/patients/{patient_id}/integrations/bee",
+    tags=["bee"],
+)
 
 
 class BeeSyncResponse(BaseModel):
@@ -36,25 +45,37 @@ class BeeSyncResponse(BaseModel):
     message: str
 
 
+class BeeSyncStatusResponse(BaseModel):
+    patient_id: str
+    mode: str
+    source_configured: bool
+    status: str
+    last_attempt_at: datetime | None = None
+    last_successful_sync_at: datetime | None = None
+    error_code: str | None = None
+
+
 @router.post("/sync", response_model=BeeSyncResponse)
-def sync_from_bee(patient_id: str, db: Session = Depends(get_db)) -> BeeSyncResponse:
+def sync_from_bee(patient_id: str, db: Session = DB_SESSION) -> BeeSyncResponse:
     if PatientRepository(db).get(patient_id) is None:
         raise HTTPException(status_code=404, detail=f"Patient '{patient_id}' not found.")
 
-    pipeline = build_monitoring_pipeline(session_factory=get_session_factory())
     try:
+        pipeline = build_monitoring_pipeline(session_factory=get_session_factory())
         results = pipeline.poll_patient(patient_id)
     except PatientNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except BeeConnectionError as exc:
+    except BeeBindingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except BeeConnectionError:
         raise HTTPException(
             status_code=502,
             detail=(
-                f"{exc} See docs/bee_integration.md for how to run "
-                "`bee login` / `bee sync` / `bee proxy`, or set bee.mode: "
-                "mock in config for local testing without a Bee account."
+                "Bee sync is unavailable. Verify the local Bee CLI session and "
+                "proxy/export configuration; see docs/bee_integration.md, or "
+                "set bee.mode: mock for local testing without a Bee account."
             ),
-        ) from exc
+        )
 
     new_events = [event for result in results for event in result.events]
     new_actions = [action for result in results for action in result.actions]
@@ -80,4 +101,44 @@ def sync_from_bee(patient_id: str, db: Session = Depends(get_db)) -> BeeSyncResp
         new_events=new_events,
         new_actions=new_actions,
         message=message,
+    )
+
+
+@v1_router.post("/sync", response_model=BeeSyncResponse)
+def sync_from_bee_v1(patient_id: str, db: Session = DB_SESSION) -> BeeSyncResponse:
+    """Versioned Bee synchronization endpoint; legacy `/patients/{id}/bee/sync` remains."""
+    return sync_from_bee(patient_id, db)
+
+
+@v1_router.get("/status", response_model=BeeSyncStatusResponse)
+def bee_sync_status(patient_id: str, db: Session = DB_SESSION) -> BeeSyncStatusResponse:
+    if PatientRepository(db).get(patient_id) is None:
+        raise HTTPException(status_code=404, detail=f"Patient '{patient_id}' not found.")
+
+    settings = get_settings().bee
+    is_mock = settings.mode == "mock"
+    configured_source_id = settings.source_id.strip()
+    configured_patient_id = settings.patient_id.strip()
+    is_bound = bool(configured_source_id and configured_patient_id)
+    if is_bound and configured_patient_id != patient_id:
+        raise HTTPException(status_code=404, detail=f"Patient '{patient_id}' not found.")
+
+    state: BeeSyncStateModel | None = None
+    if is_bound:
+        state = BeeSyncRepository(db).status(configured_source_id)
+        if state is not None and state.patient_id != patient_id:
+            raise HTTPException(status_code=409, detail="Bee source binding requires review.")
+
+    return BeeSyncStatusResponse(
+        patient_id=patient_id,
+        mode=settings.mode,
+        source_configured=is_mock or is_bound,
+        status=(
+            state.status
+            if state is not None
+            else ("not_configured" if not is_mock and not is_bound else "never_synced")
+        ),
+        last_attempt_at=state.last_attempt_at if state is not None else None,
+        last_successful_sync_at=state.last_successful_sync_at if state is not None else None,
+        error_code=state.error_code if state is not None else None,
     )

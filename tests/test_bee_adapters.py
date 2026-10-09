@@ -80,6 +80,7 @@ def test_bee_sync_adapter_parses_documented_markdown_format(tmp_path):
     assert len(segments) == 1
     segment = segments[0]
     assert segment.patient_id == "patient-demo-001"
+    assert segment.id == "bee:default:123"
     assert segment.timestamp == datetime(2024, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
     assert "Good morning, how are you feeling today?" in segment.text
     assert "I am okay, a little tired." in segment.text
@@ -126,6 +127,42 @@ def test_bee_proxy_adapter_extract_items_handles_bare_list_and_named_key():
     assert BeeProxyAdapter._extract_items(payload_named, "conversations") == [{"id": 1}, {"id": 2}]
     assert BeeProxyAdapter._extract_items(payload_bare, "conversations") == [{"id": 3}]
     assert BeeProxyAdapter._extract_items({}, "conversations") == []
+
+
+def test_bee_proxy_adapter_namespaces_ids_and_normalizes_timestamps():
+    adapter = BeeProxyAdapter(source_id="my-device")
+    responses = {
+        "/v1/conversations": {"conversations": [{"id": "conversation/1"}]},
+        "/v1/conversations/conversation%2F1": {
+            "start_time": 1705312800000,
+            "utterances": [{"text": "Hello there."}],
+        },
+    }
+    adapter._get_json = lambda path: responses[path]
+
+    segments = adapter.get_transcript("patient-1")
+
+    assert len(segments) == 1
+    assert segments[0].id == "bee:my-device:conversation%2F1"
+    assert segments[0].timestamp == datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
+
+
+def test_bee_proxy_adapter_rejects_malformed_list_payload():
+    with pytest.raises(BeeConnectionError, match="malformed list"):
+        BeeProxyAdapter._extract_items({"conversations": "not-a-list"}, "conversations")
+
+
+def test_bee_sync_adapter_normalizes_timezone_naive_export(tmp_path):
+    export_dir = _write_sync_export(tmp_path)
+    path = next((export_dir / "conversations").glob("*/*.md"))
+    path.write_text(
+        _SAMPLE_CONVERSATION_MD.replace("2024-01-15T09:00:00.000Z", "2024-01-15T09:00:00"),
+        encoding="utf-8",
+    )
+
+    segment = BeeSyncAdapter(sync_dir=export_dir).get_transcript("patient-demo-001")[0]
+
+    assert segment.timestamp == datetime(2024, 1, 15, 9, 0, tzinfo=timezone.utc)
 
 
 def test_get_bee_adapter_factory_modes(tmp_path):

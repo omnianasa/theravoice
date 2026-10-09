@@ -78,18 +78,20 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def _cmd_sync_bee(args: argparse.Namespace) -> int:
-    from theravoice.ingestion.bee import BeeConnectionError
+    from theravoice.ingestion.bee import BeeBindingError, BeeConnectionError
     from theravoice.pipeline.analysis_pipeline import PatientNotFoundError
     from theravoice.pipeline.monitoring_pipeline import build_monitoring_pipeline
     from theravoice.storage.database import get_session_factory, init_db
 
     init_db()
-    pipeline = build_monitoring_pipeline(session_factory=get_session_factory())
-
     try:
+        pipeline = build_monitoring_pipeline(session_factory=get_session_factory())
         results = pipeline.poll_patient(args.patient_id)
     except PatientNotFoundError as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+    except BeeBindingError as exc:
+        print(f"Bee sync is not configured safely: {exc}", file=sys.stderr)
         return 1
     except BeeConnectionError as exc:
         print(f"Could not reach Bee: {exc}", file=sys.stderr)

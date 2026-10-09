@@ -212,6 +212,7 @@ class AnalysisPipeline:
         text: str,
         observation_time: datetime | None = None,
         llm_client: LLMClient | None = None,
+        transcript_id: str | None = None,
     ) -> AnalysisResult:
         """Run the full pipeline for a text transcript observation."""
         observation_time = observation_time or datetime.now(timezone.utc)
@@ -225,7 +226,7 @@ class AnalysisPipeline:
 
             # Persist the raw transcript segment (redacted if configured).
             segment = TranscriptSegment(
-                id=str(uuid.uuid4()),
+                id=transcript_id or str(uuid.uuid4()),
                 patient_id=patient_id,
                 text=redact_transcript(normalized_text),
                 timestamp=observation_time,

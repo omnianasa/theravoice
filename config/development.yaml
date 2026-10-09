@@ -8,6 +8,11 @@ security:
   require_api_key: false
   api_key: ""
 
+cors:
+  allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
 privacy:
   store_raw_audio: false
   require_audio_consent: true
@@ -48,6 +53,8 @@ bee:
   sync_dir: "bee-sync"
   proxy_base_url: "http://127.0.0.1:8787"
   proxy_timeout_seconds: 10.0
+  source_id: ""
+  patient_id: ""
   max_conversations_per_poll: 50
 
 logging:

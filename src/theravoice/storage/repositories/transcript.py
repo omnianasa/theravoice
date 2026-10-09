@@ -29,6 +29,14 @@ class TranscriptRepository:
         self._session.flush()
         return segment
 
+    def exists(self, segment_id: str, patient_id: str) -> bool:
+        model = self._session.get(TranscriptSegmentModel, segment_id)
+        return model is not None and model.patient_id == patient_id
+
+    def get_patient_id(self, segment_id: str) -> str | None:
+        model = self._session.get(TranscriptSegmentModel, segment_id)
+        return model.patient_id if model is not None else None
+
     def list_for_patient(self, patient_id: str, limit: int = 200) -> list[TranscriptSegment]:
         stmt = (
             select(TranscriptSegmentModel)

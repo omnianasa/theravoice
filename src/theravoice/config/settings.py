@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -41,6 +41,10 @@ class DatabaseSettings(BaseModel):
 class SecuritySettings(BaseModel):
     require_api_key: bool = False
     api_key: str = ""
+
+
+class CORSSettings(BaseModel):
+    allowed_origins: list[str] = Field(default_factory=list)
 
 
 class PrivacySettings(BaseModel):
@@ -93,12 +97,15 @@ class BeeSettings(BaseModel):
     # "proxy" -> calls the local HTTP API started by `bee proxy` (real,
     #            near-live data; localhost only, authenticated by the
     #            user's own `bee login` session -- no token in this app)
-    mode: str = "mock"
+    mode: Literal["mock", "sync", "proxy"] = "mock"
     sync_dir: str = "bee-sync"
     proxy_base_url: str = "http://127.0.0.1:8787"
     proxy_timeout_seconds: float = 10.0
+    # Real Bee imports require an explicit operator-managed source binding.
+    source_id: str = Field(default="", max_length=100)
+    patient_id: str = Field(default="", max_length=100)
     # How many recent conversations to pull per poll from either backend.
-    max_conversations_per_poll: int = 50
+    max_conversations_per_poll: int = Field(default=50, gt=0)
 
 
 class LoggingSettings(BaseModel):
@@ -111,6 +118,7 @@ class Settings(BaseModel):
     environment: str = "development"
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    cors: CORSSettings = Field(default_factory=CORSSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     baseline: BaselineSettings = Field(default_factory=BaselineSettings)
     detection: DetectionSettings = Field(default_factory=DetectionSettings)
@@ -140,6 +148,7 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     """
     raw.setdefault("database", {})
     raw.setdefault("security", {})
+    raw.setdefault("cors", {})
     raw.setdefault("llm", {})
     raw.setdefault("aws", {})
 
@@ -149,6 +158,11 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     if api_key := os.environ.get("THERAVOICE_API_KEY"):
         raw["security"]["api_key"] = api_key
         raw["security"]["require_api_key"] = True
+
+    if cors_origins := os.environ.get("THERAVOICE_CORS_ALLOWED_ORIGINS"):
+        raw["cors"]["allowed_origins"] = [
+            origin.strip() for origin in cors_origins.split(",") if origin.strip()
+        ]
 
     for env_name, setting_name in (
         ("THERAVOICE_LLM_PROVIDER", "provider"),

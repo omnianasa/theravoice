@@ -47,6 +47,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from theravoice.schemas.audio import AudioSegment
 from theravoice.schemas.transcript import TranscriptSegment
@@ -54,6 +55,8 @@ from theravoice.schemas.transcript import TranscriptSegment
 
 class BeeAdapter(ABC):
     """Interface any Bee-like data source must implement."""
+
+    requires_identity_binding = False
 
     @abstractmethod
     def get_audio(self, patient_id: str, since: datetime | None = None) -> list[AudioSegment]:
@@ -72,6 +75,10 @@ class BeeAdapter(ABC):
 
 class BeeConnectionError(RuntimeError):
     """Raised when a real Bee channel (sync export or local proxy) can't be reached."""
+
+
+class BeeBindingError(RuntimeError):
+    """Raised when a real Bee source has no trusted configured patient binding."""
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +147,10 @@ _UTTERANCE_LINE_RE = re.compile(r"^-\s*([^:\n]+):\s*(.+)$", re.MULTILINE)
 def _parse_iso8601(value: str) -> datetime:
     # Bee sync files use ISO 8601 UTC, e.g. "2024-01-15T09:00:00.000Z".
     normalized = value.strip().replace("Z", "+00:00")
-    return datetime.fromisoformat(normalized)
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _parse_conversation_markdown(text: str, patient_id: str) -> TranscriptSegment | None:
@@ -194,8 +204,11 @@ class BeeSyncAdapter(BeeAdapter):
     already wrote to disk.
     """
 
-    def __init__(self, sync_dir: str | Path) -> None:
+    requires_identity_binding = True
+
+    def __init__(self, sync_dir: str | Path, source_id: str = "default") -> None:
         self._sync_dir = Path(sync_dir)
+        self._source_id = source_id
 
     def _conversation_files(self) -> list[Path]:
         conversations_dir = self._sync_dir / "conversations"
@@ -222,6 +235,10 @@ class BeeSyncAdapter(BeeAdapter):
                 continue
             if since is not None and segment.timestamp < since:
                 continue
+            segment.id = (
+                f"bee:{quote(self._source_id, safe='')}:"
+                f"{quote(segment.id.removeprefix('bee-conversation-'), safe='')}"
+            )
             segments.append(segment)
         segments.sort(key=lambda s: s.timestamp)
         return segments
@@ -234,7 +251,9 @@ class BeeSyncAdapter(BeeAdapter):
             return []
         events: list[dict] = []
         for path in sorted(daily_dir.glob("*/summary.md")):
-            events.append({"patient_id": patient_id, "type": "daily_summary_synced", "path": str(path)})
+            events.append(
+                {"patient_id": patient_id, "type": "daily_summary_synced", "path": str(path)}
+            )
         return events
 
 
@@ -257,9 +276,19 @@ class BeeProxyAdapter(BeeAdapter):
     `http://127.0.0.1:<port>` like any other local service.
     """
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8787", timeout_seconds: float = 10.0) -> None:
+    requires_identity_binding = True
+
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8787",
+        timeout_seconds: float = 10.0,
+        source_id: str = "default",
+        max_conversations: int = 50,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._source_id = source_id
+        self._max_conversations = max_conversations
 
     def _get_json(self, path: str) -> dict | list:
         url = f"{self._base_url}{path}"
@@ -290,13 +319,20 @@ class BeeProxyAdapter(BeeAdapter):
         pagination metadata; this also tolerates a bare top-level list.
         """
         if isinstance(payload, list):
+            if any(not isinstance(item, dict) for item in payload):
+                raise BeeConnectionError("Bee proxy returned a malformed list response.")
             return payload
         if isinstance(payload, dict):
             for key in keys:
                 value = payload.get(key)
                 if isinstance(value, list):
+                    if any(not isinstance(item, dict) for item in value):
+                        raise BeeConnectionError("Bee proxy returned a malformed list response.")
                     return value
-        return []
+                if key in payload:
+                    raise BeeConnectionError("Bee proxy returned a malformed list response.")
+            return []
+        raise BeeConnectionError("Bee proxy returned an unsupported response.")
 
     def get_audio(self, patient_id: str, since: datetime | None = None) -> list[AudioSegment]:
         # Bee's documented /v1/* surface exposes conversations, daily
@@ -309,31 +345,51 @@ class BeeProxyAdapter(BeeAdapter):
     ) -> list[TranscriptSegment]:
         listing = self._get_json("/v1/conversations")
         conversation_ids = [
-            item.get("id") for item in self._extract_items(listing, "conversations") if item.get("id") is not None
+            item["id"]
+            for item in self._extract_items(listing, "conversations")
+            if isinstance(item.get("id"), (int, str)) and str(item["id"])
         ]
 
         segments: list[TranscriptSegment] = []
-        for conversation_id in conversation_ids[:max_conversations]:
-            detail = self._get_json(f"/v1/conversations/{conversation_id}")
+        limit = min(max_conversations, self._max_conversations)
+        for conversation_id in conversation_ids[:limit]:
+            detail = self._get_json(f"/v1/conversations/{quote(str(conversation_id), safe='')}")
             if not isinstance(detail, dict):
-                continue
+                raise BeeConnectionError("Bee proxy returned a malformed conversation.")
 
             start_time_raw = detail.get("start_time")
             utterances = detail.get("utterances") or []
             if start_time_raw is None or not utterances:
                 continue
 
-            start_time = self._epoch_ms_to_datetime(int(start_time_raw))
+            try:
+                start_time = self._epoch_ms_to_datetime(int(start_time_raw))
+            except (TypeError, ValueError, OverflowError, OSError) as exc:
+                raise BeeConnectionError(
+                    "Bee proxy returned an invalid conversation timestamp."
+                ) from exc
             if since is not None and start_time < since:
                 continue
 
-            utterance_texts = [u.get("text", "").strip() for u in utterances if u.get("text")]
+            if not isinstance(utterances, list) or any(not isinstance(u, dict) for u in utterances):
+                raise BeeConnectionError("Bee proxy returned malformed utterances.")
+            utterance_texts: list[str] = []
+            for utterance in utterances:
+                text = utterance.get("text")
+                if text is None or text == "":
+                    continue
+                if not isinstance(text, str):
+                    raise BeeConnectionError("Bee proxy returned malformed utterance text.")
+                utterance_texts.append(text.strip())
             if not utterance_texts:
                 continue
 
             segments.append(
                 TranscriptSegment(
-                    id=f"bee-conversation-{conversation_id}",
+                    id=(
+                        f"bee:{quote(self._source_id, safe='')}:"
+                        f"{quote(str(conversation_id), safe='')}"
+                    ),
                     patient_id=patient_id,
                     text=" ".join(utterance_texts),
                     timestamp=start_time,
@@ -363,6 +419,8 @@ def get_bee_adapter(
     sync_dir: str = "bee-sync",
     proxy_base_url: str = "http://127.0.0.1:8787",
     proxy_timeout_seconds: float = 10.0,
+    source_id: str = "default",
+    max_conversations_per_poll: int = 50,
 ) -> BeeAdapter:
     """Return the configured Bee adapter.
 
@@ -374,7 +432,12 @@ def get_bee_adapter(
     if mode == "mock":
         return MockBeeAdapter()
     if mode == "sync":
-        return BeeSyncAdapter(sync_dir=sync_dir)
+        return BeeSyncAdapter(sync_dir=sync_dir, source_id=source_id)
     if mode == "proxy":
-        return BeeProxyAdapter(base_url=proxy_base_url, timeout_seconds=proxy_timeout_seconds)
+        return BeeProxyAdapter(
+            base_url=proxy_base_url,
+            timeout_seconds=proxy_timeout_seconds,
+            source_id=source_id,
+            max_conversations=max_conversations_per_poll,
+        )
     raise ValueError(f"Unknown bee.mode '{mode}'. Expected 'mock', 'sync', or 'proxy'.")

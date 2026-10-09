@@ -77,7 +77,9 @@ class UserSessionModel(Base):
     __tablename__ = "user_sessions"
 
     token_hash: Mapped[str] = mapped_column(String, primary_key=True)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
 
 
@@ -120,6 +122,18 @@ class TranscriptSegmentModel(Base):
     end_time: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class BeeSyncStateModel(Base):
+    __tablename__ = "bee_sync_states"
+
+    source_id: Mapped[str] = mapped_column(String, primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String, ForeignKey("patients.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String, default="never_synced")
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_processed_record_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class BiomarkerModel(Base):

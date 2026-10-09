@@ -11,6 +11,33 @@ def test_health(client):
     assert response.json() == {"status": "ok", "service": "theravoice"}
 
 
+def test_versioned_api_aliases_preserve_existing_workflows(client):
+    assert client.get("/api/v1/health").status_code == 200
+    info = client.get("/api/v1/info")
+    assert info.status_code == 200
+    assert info.json()["api_version"] == "v1"
+    assert client.get("/api/v1/integrations").json()["integrations"][0]["name"] == "bee"
+
+    created = client.post(
+        "/api/v1/patients",
+        json={"id": "v1-bee-patient", "display_name": "V1 Bee", "consent_data_storage": True},
+    )
+    assert created.status_code == 201
+    analyzed = client.post(
+        "/api/v1/analyses/transcript",
+        json={"patient_id": "v1-bee-patient", "text": "A versioned transcript."},
+    )
+    assert analyzed.status_code == 200
+    assert analyzed.json()["patient_id"] == "v1-bee-patient"
+
+    sync = client.post("/api/v1/patients/v1-bee-patient/integrations/bee/sync")
+    assert sync.status_code == 200
+    assert sync.json()["observations_processed"] == 0
+    status = client.get("/api/v1/patients/v1-bee-patient/integrations/bee/status")
+    assert status.status_code == 200
+    assert status.json()["mode"] == "mock"
+
+
 def test_api_key_is_required_when_authentication_is_enabled(monkeypatch):
     from types import SimpleNamespace
 
@@ -31,6 +58,21 @@ def test_api_key_is_required_when_authentication_is_enabled(monkeypatch):
         assert test_client.get("/health", headers={"X-API-Key": "wrong"}).status_code == 401
         response = test_client.get("/health", headers={"X-API-Key": "test-secret"})
         assert response.status_code == 200
+        assert (
+            test_client.get(
+                "/api/v1/patients/private-patient",
+                headers={"X-API-Key": "test-secret"},
+            ).status_code
+            == 403
+        )
+        assert (
+            test_client.post(
+                "/api/v1/analyses/transcript",
+                headers={"X-API-Key": "test-secret"},
+                json={"patient_id": "private-patient", "text": "Private text."},
+            ).status_code
+            == 403
+        )
         registration = test_client.post(
             "/auth/register",
             json={
@@ -41,9 +83,10 @@ def test_api_key_is_required_when_authentication_is_enabled(monkeypatch):
         )
         assert registration.status_code == 201
         bearer = registration.json()["access_token"]
-        assert test_client.get(
-            "/health", headers={"Authorization": f"Bearer {bearer}"}
-        ).status_code == 200
+        assert (
+            test_client.get("/health", headers={"Authorization": f"Bearer {bearer}"}).status_code
+            == 200
+        )
 
 
 def test_account_register_login_me_and_logout(client):
@@ -75,15 +118,22 @@ def test_account_register_login_me_and_logout(client):
 
     assert client.post("/auth/logout", headers=headers).status_code == 204
     assert client.get("/auth/me", headers=headers).status_code == 401
-    assert client.post(
-        "/auth/login", json={"email": "account@example.com", "password": "wrong-password"}
-    ).status_code == 401
+    assert (
+        client.post(
+            "/auth/login", json={"email": "account@example.com", "password": "wrong-password"}
+        ).status_code
+        == 401
+    )
 
 
 def test_accounts_cannot_access_each_others_patients_or_ingest_for_them(client):
     first = client.post(
         "/auth/register",
-        json={"email": "first@example.com", "display_name": "First", "password": "first-password-long"},
+        json={
+            "email": "first@example.com",
+            "display_name": "First",
+            "password": "first-password-long",
+        },
     ).json()
     first_headers = {"Authorization": f"Bearer {first['access_token']}"}
     created = client.post(
@@ -95,15 +145,29 @@ def test_accounts_cannot_access_each_others_patients_or_ingest_for_them(client):
 
     second = client.post(
         "/auth/register",
-        json={"email": "second@example.com", "display_name": "Second", "password": "second-password-long"},
+        json={
+            "email": "second@example.com",
+            "display_name": "Second",
+            "password": "second-password-long",
+        },
     ).json()
     second_headers = {"Authorization": f"Bearer {second['access_token']}"}
     assert client.get("/patients/private-patient", headers=second_headers).status_code == 404
-    assert client.post(
-        "/ingestion/transcript",
-        headers=second_headers,
-        json={"patient_id": "private-patient", "text": "private record"},
-    ).status_code == 404
+    assert (
+        client.post(
+            "/ingestion/transcript",
+            headers=second_headers,
+            json={"patient_id": "private-patient", "text": "private record"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/patients/private-patient/integrations/bee/sync",
+            headers=second_headers,
+        ).status_code
+        == 404
+    )
     assert client.get("/patients/private-patient", headers=first_headers).status_code == 200
 
 
@@ -271,7 +335,8 @@ def test_biomarkers_endpoint_returns_history(client):
 
 def test_baseline_builds_up_and_detection_eventually_runs(client):
     client.post(
-        "/patients", json={"id": "patient-base1", "display_name": "Base1", "consent_data_storage": True}
+        "/patients",
+        json={"id": "patient-base1", "display_name": "Base1", "consent_data_storage": True},
     )
     # Feed several consistent observations to build a baseline
     # (development.yaml sets baseline.minimum_observations: 5; tests use the
@@ -299,7 +364,8 @@ def test_bee_sync_endpoint_mock_mode_reports_no_new_conversations(client):
     # config/testing.yaml sets bee.mode: mock, so this hits a blank
     # MockBeeAdapter with nothing seeded -- a real, network-free response.
     client.post(
-        "/patients", json={"id": "patient-bee1", "display_name": "Bee1", "consent_data_storage": True}
+        "/patients",
+        json={"id": "patient-bee1", "display_name": "Bee1", "consent_data_storage": True},
     )
     response = client.post("/patients/patient-bee1/bee/sync")
     assert response.status_code == 200
@@ -312,6 +378,27 @@ def test_bee_sync_endpoint_mock_mode_reports_no_new_conversations(client):
 def test_bee_sync_endpoint_missing_patient_404(client):
     response = client.post("/patients/does-not-exist/bee/sync")
     assert response.status_code == 404
+
+
+def test_real_bee_sync_without_binding_returns_controlled_conflict(client, monkeypatch):
+    from theravoice.api.routes import bee
+    from theravoice.ingestion.bee import BeeBindingError
+
+    client.post(
+        "/patients",
+        json={"id": "unbound-bee-patient", "display_name": "Unbound"},
+    )
+
+    def reject_unbound_source(*_args, **_kwargs):
+        raise BeeBindingError(
+            "Real Bee sync requires bee.source_id and bee.patient_id to be configured."
+        )
+
+    monkeypatch.setattr(bee, "build_monitoring_pipeline", reject_unbound_source)
+    response = client.post("/api/v1/patients/unbound-bee-patient/integrations/bee/sync")
+
+    assert response.status_code == 409
+    assert "requires bee.source_id" in response.json()["detail"]
 
 
 def test_consent_enforcement_on_audio_ingestion(client):
