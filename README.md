@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/image.png" width="500" alt="TheraVoice Logo">
+  <img src="assets/image.png" alt="TheraVoice Logo">
 
   <p>
     <strong>Open-source, non-diagnostic speech and communication monitoring</strong>
